@@ -1,0 +1,335 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <HardwareSerial.h>
+#include "PZEM004Tv30.h"
+#include <Pushbutton.h>
+#include <ArduinoLog.h>
+#include "FreeRTOS.h"
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+#include <Update.h>
+#include "html.h"
+#include "encoder.h"
+#include <LiquidCrystal_I2C.h>
+#include <LiquidMenu.h>
+
+
+/*
+    Encoder pins
+*/
+#define ENC_A_PIN 39
+#define ENC_B_PIN 36
+#define ENC_BTN_PIN 34
+Encoder enc(ENC_A_PIN, ENC_B_PIN);
+Pushbutton enc_btn(ENC_BTN_PIN);
+
+/*
+    PZEM sensors addresses
+*/
+unsigned char sensors[5] = {'1', '2', '3', '4'};
+
+/*
+    LCD screen and text menu definition
+*/
+#define MAX_SCREEN_N 2
+unsigned char screen_n = 0;
+LiquidCrystal_I2C lcd(0x27,16,MAX_SCREEN_N);
+
+// A LiquidLine object can be used more that once.
+LiquidLine back_line(11, 1, "/BACK");
+/*
+    Main menu
+*/
+/*
+    Screen 1
+*/
+LiquidLine welcome_line1(1, 0, "LiquidMenu ", LIQUIDMENU_VERSION);
+LiquidLine welcome_line2(1, 1, "Hello Menu I2C");
+LiquidScreen welcome_screen(welcome_line1, welcome_line2);
+
+/*
+    Screen 2
+*/
+LiquidLine status_line_1(0, 0, "Check statuses");
+LiquidLine status_line_2(0, 1, "some info");
+LiquidScreen statuses_screen(status_line_1, status_line_2);
+
+LiquidMenu main_menu(lcd, welcome_screen, statuses_screen, 1);
+
+/*
+    Sensors menu
+*/
+LiquidLine pzem_enroll_line1(0, 0, "PZEM sensors");
+LiquidLine pzem_enroll_line2(0, 1, "", sensors);
+LiquidScreen pzem_settings_screen(pzem_enroll_line1, pzem_enroll_line2);
+
+LiquidLine sensors_statuses_line1(0, 0, "Sensors statuses");
+LiquidScreen pzem_statuses_screen(sensors_statuses_line1, back_line);
+LiquidMenu sensors_menu(lcd, pzem_settings_screen, pzem_statuses_screen);
+
+/*
+    Menu system - All menu
+*/
+LiquidSystem all_menu(main_menu, sensors_menu);
+
+//////////////////////////////////////////////////////////////////////
+
+// Define relay ////////////////////////////////////////
+#define RELAY_PIN 33
+//////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////
+
+// Led settings //////////////////////////////////////////////////////
+#define LED_PIN 23
+#define LED_DEFAULT_F 1 // Hz
+#define LED_FILE_UPLOADING_F 100
+int Led_f = LED_DEFAULT_F;
+//////////////////////////////////////////////////////////////////////
+
+
+// Declare functions prototypes //////////////////////////////////////
+void taskControlLed( void * parameter );
+void taskPZEM( void * parameter );
+void taskBtn1Read( void * parameter );
+void taskEncoderRead( void * parameter);
+//////////////////////////////////////////////////////////////////////
+
+TaskHandle_t TaskHandle_LED;
+TaskHandle_t TaskHandle_ENC;
+//////////////////////////////////////////////////////////////////////
+
+// Callback function that will be attached to back_line.
+void go_back() {
+  // This function takes reference to the wanted menu.
+  all_system.change_menu(main_menu);
+}
+
+void setup() {
+    // Init build-in LED ///////////////////////////////////////////////
+    pinMode(LED_BUILTIN, OUTPUT);
+    //////////////////////////////////////////////////////////////////////
+
+    // Debug serial setup ///////////////////////////////////////////////
+	Serial.begin(9600);
+    while(!Serial && !Serial.available()){}
+    Log.begin   (LOG_LEVEL_VERBOSE, &Serial);
+    Log.notice("###### Start logger ######"CR);
+    //////////////////////////////////////////////////////////////////////
+
+
+    // Setup relay //////////////////////////////////////////////////////
+    pinMode(RELAY_PIN, OUTPUT);
+    digitalWrite(RELAY_PIN, false);
+    //////////////////////////////////////////////////////////////////////
+
+    // Setup LED /////////////////////////////////////////////////////////
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, false);
+    //////////////////////////////////////////////////////////////////////
+
+    // Setup LCD
+    //lcd.begin(16, 2);
+    //lcd.print("Starting");
+    //lcd.begin(16, 2);
+    lcd.init();
+    lcd.backlight();// Включаем подсветку дисплея
+    //lcd.print("Hello world");
+    //lcd.setCursor(8, 1);
+    //lcd.print("LCD 1602");
+    //////////////////////////////////////////////////////////////////////
+    // Menu initialization.
+    back_line.set_focusPosition(Position::LEFT);
+    back_line.attach_function(1, go_back);
+    back_line.attach_function(2, go_back);
+    all_menu.update();
+
+    // This is the method used to add a screen object to the menu.
+    //menu.update();
+    //////////////////////////////////////////////////////////////////////
+
+    // Encoder setup ///////////////////////////////
+    enc.begin([]{enc.EncChanged_ISR();});
+    //enc.setRotation(-10, 10, false);
+    ///////////////////////////////////////////////
+    /*
+    // Init pzem
+    #define MAX_DEVS 0xf8
+    uint8_t devices[MAX_DEVS];
+    PZEM004Tv30 pzem(&Serial2, MAX_DEVS);
+    pzem.init(MAX_DEVS);
+    for (uint8_t i=0; i<MAX_DEVS; i++) devices[i]=0;
+    pzem.search(devices);
+    for (uint8_t i=0; i<MAX_DEVS; i++){
+        if (devices[i] != 0 && devices[i] != MAX_DEVS && devices[i] != i+1){
+            Log.notice("Change addr of dev %d to %d"CR, devices[i], i+1);
+            pzem.init(devices[i]);
+            pzem.setAddress(i+1);
+        }
+    }
+    */
+
+    // Init MCP23017 /////////////////////////////////////////////////////
+    //mcp1.begin();
+    //mcp1.pinMode(7, OUTPUT);
+    //mcp1.digitalWrite(7, HIGH);
+
+    // Setup Wifi AP /////////////////////////////////////////////////////
+    //Log.notice("Start AP"CR);
+    //IPAddress local_IP(192, 168, 0, 1);
+    //WiFi.softAPConfig(local_IP, local_IP, IPAddress(255, 255, 255, 0));   // subnet FF FF FF 00
+    //WiFi.softAP(ssid, password);
+
+    /*
+      // Connect to WiFi network
+      WiFi.begin(ssid, password);
+      Serial.println("");
+
+      // Wait for connection
+      while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+      }
+      Serial.println("");
+      Serial.print("Connected to ");
+      Serial.println(ssid);
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
+    //////////////////////////////////////////////////////////////////////
+
+    */
+    xTaskCreate(taskControlLed,
+                "TaskLedBlinker",
+                10000,
+                NULL,
+                1,
+                &TaskHandle_LED);
+    xTaskCreate(taskEncoderRead,
+                "EncReadTask",
+                10000,
+                NULL,
+                1,
+                &TaskHandle_ENC);
+}
+
+void loop() {
+}
+
+void taskEncoderRead( void * parameter ) {
+    bool old_btn_state=false;
+    bool btn_state=false
+    while(1){
+        if (enc.isChanged()){
+            //menu.update();
+            if (enc.getDirection() == cw){
+                Log.notice("Enc: ->"CR);
+                all_menu.next_screen();
+            }
+            else{
+                Log.notice("Enc: <-"CR);
+                all_menu.previous_screen();
+            }
+
+            Log.notice("%d"CR, enc.getRotation());
+        }
+        btn_state = enc_btn.isPressed()
+        if (btn_state != old_btn_state){
+            if (btn_state) all_menu.switch_focus();
+        }
+        vTaskDelay(100);
+    }
+}
+
+void rotary_onButtonClick() {
+
+    Log.notice("Btn pressed"CR);
+	//rotaryEncoder.disable();
+
+}
+
+void taskControlLed( void * parameter ){
+    bool ledstatus = false;
+    while(1){
+        ledstatus = !ledstatus;
+        digitalWrite(LED_BUILTIN, ledstatus);
+        vTaskDelay(1000/Led_f);
+    }
+}
+/*
+void taskPZEM( void * parameter ){
+    const int t_delay = 1000;
+    float val=0;
+    uint8_t devices[MAX_DEVS];
+
+
+    Log.notice("Changing device addresses ..."CR);
+    for (uint8_t i=0; i<MAX_DEVS; i++){
+        uint8_t new_addr = i+1;
+        PZEM004Tv30 pzem(&Serial2, MAX_DEVS);
+        val = pzem.voltage();
+        if (!isnan(val)){
+            Log.notice("Device found!"CR);
+            bool res = pzem.setAddress(new_addr);
+            if (not res) {
+                Log.error("Failed to change device addr to %d"CR, new_addr);
+            }
+            else{
+                uint8_t addr = pzem.getAddress();
+                if (addr == new_addr){
+                    Log.notice("Device address changed to %d"CR, new_addr);
+                }
+            }
+        }
+        vTaskDelay(100);
+    }
+    for (uint8_t i=0; i<MAX_DEVS; i++){
+        vTaskDelay(100);
+        uint8_t new_addr = i+1;
+        PZEM004Tv30 pzem(&Serial2, new_addr);
+        val = pzem.voltage();
+        if (!isnan(val)) devices[i] = new_addr;
+        else continue;
+    }
+
+
+    //HardwareSerial PzemSerial2(2);     // Use hwserial UART2 at pins IO-16 (RX2) and IO-17 (TX2)
+    //PZEM004Tv30 pzem(&PzemSerial2);
+    //IPAddress ip(192,168,1,1);
+
+    //Log.notice("pzem_init: Connecting to PZEM..."CR);
+    //while (true) {
+    //    if(pzem.getAddress()){
+    //        Log.notice("pzem_init: Ok"CR);
+    //        break;
+    //    }
+    //    vTaskDelay(t_delay);
+    //}
+
+    while(true){
+        vTaskDelay(500);
+        continue;
+        for (uint8_t i=0; i<0xf8; i++){
+            PZEM004Tv30 pzem(&Serial2, devices[i]);
+            Log.notice("Ask device %d"CR, devices[i]);
+
+            val = pzem.voltage();
+            if(val < 0.0) Voltage = 0.0;
+            else Voltage = val;
+            Log.verbose("pzem_read: Voltage %F"CR, Voltage);
+
+            val = pzem.current();
+            if(val < 0.0) Current = 0.0;
+            else Current = val;
+            Log.verbose("pzem_read: Current %F"CR, Current);
+
+            val = pzem.energy();
+            if (val < 0.0) Wh = 0.0;
+            else Wh = (val/1000);
+            Log.verbose("pzem_read: Wh %F"CR, Wh);
+            vTaskDelay(500);
+        }
+    }
+}
+*/
