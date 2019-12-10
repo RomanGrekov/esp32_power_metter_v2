@@ -198,9 +198,8 @@ static void Level1Item1_Enter(Key_Pressed_t key)
 static void Generic_Write(const char* Text)
 {
 	if (Text){
-        //lcd_buffer.clear();
-        //lcd_buffer.print(0, Text);
-        lcd_buffer.print(0, "Saving...\nOk\0");
+        lcd_buffer.clear();
+        lcd_buffer.print(0, Text);
     }
 }
 
@@ -233,7 +232,7 @@ static void sensor_select(int parent_index){
         Show sensor id and it's address in eeprom
     */
     Menu_Item_t *cur_menu = Menu_GetCurrentMenu();
-    lcd_buffer.print(1, "Address: %d\0", confd.get_address(cur_menu->index));
+    lcd_buffer.print(1, "Address: %d", confd.get_address(cur_menu->index));
 }
 
 static void sensor_add_select(int parent_index){
@@ -273,7 +272,7 @@ static void sensor_add(Key_Pressed_t key){
 
     if (dev_addr == 0){
         Log.error("Failed to find any device" CR);
-        lcd_buffer.print(0, "Faile to find any device");
+        lcd_buffer.print(0, "Failed to find any device");
         vTaskDelay(2000);
     }
     else {
@@ -290,11 +289,11 @@ static void sensor_add(Key_Pressed_t key){
             xSemaphoreGive(xMutexI2c);
             if (res_int != 0){
                 Log.error("Failed to store sensors");
-                //lcd_buffer.print(0, "Failed to save sensor to mem");
+                lcd_buffer.print(0, "Failed to save sensor to mem");
             }
             else{
                 lcd_buffer.clear();
-                //lcd_buffer.print(0, "Success!");
+                lcd_buffer.print(0, "Success!");
             }
         }
         else{
@@ -322,16 +321,15 @@ static void sensor_del(Key_Pressed_t key){
     bool shure=false;
     char num[16];
 
-    //lcd_buffer.print(0, "Are you shure?");
-    //lcd_buffer.print(1, "->No Yes");
+    lcd_buffer.print(0, "Are you shure?\n->No Yes");
     while(1){
         if (enc.isChanged()){
             if (enc.getDirection() == cw){
-                //lcd_buffer.print(1, "No ->Yes");
+                lcd_buffer.print(1, "No ->Yes");
                 shure=true;
             }
             else{
-                //lcd_buffer.print(1, "->No Yes");
+                lcd_buffer.print(1, "->No Yes");
                 shure=false;
             }
         }
@@ -342,8 +340,7 @@ static void sensor_del(Key_Pressed_t key){
                 if (shure){
                     confd.add_sensor(current_sensor_n, 0);
                     confd.store_sensors();
-                    //lcd_buffer.print(0, "Removed sensor");
-                    //lcd_buffer.prints(1, "- %d", current_sensor_n);
+                    lcd_buffer.print(0, "Removed sensor\n- %d", current_sensor_n);
                     vTaskDelay(2000);
                 }
                 break;
@@ -362,16 +359,14 @@ static void sensor_show(Key_Pressed_t key){
     uint8_t addr = confd.get_address(current_sensor_n);
     while(1){
         if (addr == 0){
-            //lcd_buffer.print(0, "Sensor absent");
-            //lcd_buffer.print(1, "please add it!");
+            lcd_buffer.print(0, "Sensor absent\nplease add it!");
         }
         else{
             PZEM004Tv30 pzem(&Serial2, addr);
             voltage = pzem.voltage();
             current = pzem.current();
             energy = pzem.energy();
-            //lcd_buffer.prints(0, "V %.1f A %.2f\nE %.2f", voltage, current, energy);
-            //lcd_buffer.prints(1, "E %.2f", energy);
+            lcd_buffer.print(0, "V %.1f A %.2f\nE %.2f", voltage, current, energy);
         }
         btn_state = enc_btn.isPressed();
         if (btn_state != old_btn_state){
@@ -386,41 +381,4 @@ static void sensor_show(Key_Pressed_t key){
 }
 
 static void sensor_enter(Key_Pressed_t key){
-    //child_menu->index = _index;
-    /*
-    uint8_t cur_sensor=0;
-    bool cur_sensor_changed=true;
-    bool old_btn_state=false;
-    bool btn_state=false;
-
-    while(1){
-        if (enc.isChanged()){
-            if (enc.getDirection() == cw){
-                if(cur_sensor < SENSORS_AMOUNT-1) cur_sensor++;
-                else cur_sensor = 0;
-                cur_sensor_changed = true;
-            }
-            else{
-                if(cur_sensor > 0) cur_sensor--;
-                else cur_sensor = SENSORS_AMOUNT-1;
-                cur_sensor_changed = true;
-            }
-        }
-        btn_state = enc_btn.isPressed();
-        if (btn_state != old_btn_state){
-            old_btn_state = btn_state;
-            if (btn_state == 0){
-        		//Menu_Navigate(MENU_PARENT);
-        		//Menu_EnterItem(KEY_NEXT);
-                break;
-            }
-        }
-        if (cur_sensor_changed){
-            cur_sensor_changed = false;
-        }
-        vTaskDelay(100);
-    }
-	Menu_Navigate(MENU_NEXT);
-    */
-
 }

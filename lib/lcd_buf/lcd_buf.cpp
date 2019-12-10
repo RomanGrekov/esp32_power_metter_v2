@@ -25,18 +25,20 @@ void LcdBuf::show(){
     int pos=0;
     _lcd.clear();
     while(pos < MAX_SCREEN_R * MAX_SCREEN_C){
-        if(col == MAX_SCREEN_C - 1){
+        if(col >= (MAX_SCREEN_C-1)){
             row++;
             col=0;
         }
         else col++;
-        pos = col + row*MAX_SCREEN_C;
-        if (pos >= MAX_SCREEN_R * MAX_SCREEN_C) break;
-        if (buffer[pos] == '\0' || buffer[pos] == '\n') col = MAX_SCREEN_C -1;
+        //pos = col + row*MAX_SCREEN_C;
+        if ((col + row*MAX_SCREEN_C) >= MAX_SCREEN_R * MAX_SCREEN_C) break;
+        if (buffer[pos] == '\0' || buffer[pos] == '\n') col = MAX_SCREEN_C;
         else {
             _lcd.setCursor(col, row);
             _lcd.write(buffer[pos]);
         }
+        if (buffer[pos] == '\0') pos = col + row*MAX_SCREEN_C;
+        else pos++;
     }
     _lcd.display();
 }
