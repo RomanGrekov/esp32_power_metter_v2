@@ -13,12 +13,12 @@
 #include "html.h"
 #include "encoder.h"
 #include <LiquidCrystal_I2C.h>
-//#include <LiquidMenu.h>
 #include "mymicromenu.h"
 #include "mymenu.h"
 #include <string.h>
 #include "eeprom_cli.h"
 #include "confd.h"
+#include "lcd_buf.h"
 
 /*
     Encoder pins
@@ -36,8 +36,8 @@ Pushbutton enc_btn(ENC_BTN_PIN);
 #define MAX_SCREEN_C 16
 #define SCREEN_ADDR 0x27
 LiquidCrystal_I2C lcd(SCREEN_ADDR, MAX_SCREEN_C, MAX_SCREEN_R);
+LcdBuf lcd_buffer(lcd);
 
-char lcd_buf[MAX_SCREEN_R][MAX_SCREEN_C];
 
 /*
     RTOS tasks prototypes
@@ -168,31 +168,11 @@ void taskLcd( void * parameter ) {
     */
     lcd.init();
     lcd.backlight();
-    lcd.setCursor(0, 0);
-    lcd.print("Test program");
-    lcd.display();
-
-    bool lcd_buf_changed = true;
-    char old_lcd_buf[MAX_SCREEN_R][MAX_SCREEN_C];
 
     while(1){
-        lcd_buf_changed = false;
-        for(int i=0; i<MAX_SCREEN_R; i++){
-            for(int i1=0; i1<MAX_SCREEN_C; i1++){
-                if (lcd_buf[i][i1] != old_lcd_buf[i][i1]){
-                    old_lcd_buf[i][i1] = lcd_buf[i][i1];
-                    lcd_buf_changed = true;
-                }
-            }
-        }
-        if (lcd_buf_changed){
+        if (lcd_buffer.is_changed()){
             xSemaphoreTake(xMutexI2c, portMAX_DELAY);
-            lcd.clear();
-            lcd.setCursor(0, 0);
-            lcd.print(lcd_buf[0]);
-            lcd.setCursor(0, 1);
-            lcd.print(lcd_buf[1]);
-            lcd.display();
+            lcd_buffer.show();
             xSemaphoreGive(xMutexI2c);
         }
         vTaskDelay(100);
@@ -217,10 +197,10 @@ static void Level1Item1_Enter(Key_Pressed_t key)
  */
 static void Generic_Write(const char* Text)
 {
-    int cnt=0;
 	if (Text){
-        strcpy(lcd_buf[0], Text);
-        lcd_buf[1][0] = '\0';
+        //lcd_buffer.clear();
+        //lcd_buffer.print(0, Text);
+        lcd_buffer.print(0, "Saving...\nOk\0");
     }
 }
 
@@ -252,12 +232,8 @@ static void sensor_select(int parent_index){
         Menu of sensors
         Show sensor id and it's address in eeprom
     */
-    char num[16];
-
     Menu_Item_t *cur_menu = Menu_GetCurrentMenu();
-    strcpy(lcd_buf[1], "Address: ");
-    itoa(confd.get_address(cur_menu->index), num, 10);
-    strcpy(lcd_buf[1]+8, num);
+    lcd_buffer.print(1, "Address: %d\0", confd.get_address(cur_menu->index));
 }
 
 static void sensor_add_select(int parent_index){
@@ -274,8 +250,7 @@ static void sensor_add(Key_Pressed_t key){
     char num[16];
     uint8_t dev_addr=0;
 
-    strcpy(lcd_buf[0], "Searching sensors");
-    lcd_buf[1][0] = '\0';
+    lcd_buffer.print(0, "Searching sensors");
 
     // Init pzem
     #define MAX_DEVS 0xf8
@@ -283,10 +258,8 @@ static void sensor_add(Key_Pressed_t key){
     PZEM004Tv30 pzem(&Serial2);
     // Search device
     uint8_t response[7];
-    strcpy(lcd_buf[1], "Try addr: ");
     for(uint8_t addr = 0x01; addr <= MAX_DEVS; addr++){
-        itoa(addr, num, 10);
-        strcpy(lcd_buf[1]+10, num);
+        lcd_buffer.print(1, "Try addr: %d", addr);
         pzem.sendCmd8(CMD_RIR, 0x00, 0x01, false, addr);
         if(pzem.recieve(response, 7) != 7){ // Something went wrong
             vTaskDelay(100);
@@ -299,15 +272,13 @@ static void sensor_add(Key_Pressed_t key){
     }
 
     if (dev_addr == 0){
-        Log.error("Failed to find any device"CR);
-        strcpy(lcd_buf[0], "Faile to find");
-        strcpy(lcd_buf[1], "any device");
+        Log.error("Failed to find any device" CR);
+        lcd_buffer.print(0, "Faile to find any device");
         vTaskDelay(2000);
     }
     else {
         Log.notice("Found device %d" CR, dev_addr);
-        strcpy(lcd_buf[0], "Saving...");
-        strcpy(lcd_buf[1]+11, " Ok");
+        lcd_buffer.print(0, "Saving...\nOk");
         vTaskDelay(2000);
         PZEM004Tv30 pzem(&Serial2, dev_addr);
         res = pzem.setAddress(current_sensor_n+1);
@@ -319,16 +290,15 @@ static void sensor_add(Key_Pressed_t key){
             xSemaphoreGive(xMutexI2c);
             if (res_int != 0){
                 Log.error("Failed to store sensors");
-                strcpy(lcd_buf[0], "Failed to save");
-                strcpy(lcd_buf[1], "sensor to store");
+                //lcd_buffer.print(0, "Failed to save sensor to mem");
             }
             else{
-                strcpy(lcd_buf[0], "Success!");
+                lcd_buffer.clear();
+                //lcd_buffer.print(0, "Success!");
             }
         }
         else{
-            strcpy(lcd_buf[0], "Failed to set");
-            strcpy(lcd_buf[1], "new address");
+            //lcd_buffer.print(0, "Failed to set new address");
         }
     }
     bool old_btn_state=false;
@@ -352,16 +322,16 @@ static void sensor_del(Key_Pressed_t key){
     bool shure=false;
     char num[16];
 
-    strcpy(lcd_buf[0], "Are you shure?");
-    strcpy(lcd_buf[1], "->No Yes");
+    //lcd_buffer.print(0, "Are you shure?");
+    //lcd_buffer.print(1, "->No Yes");
     while(1){
         if (enc.isChanged()){
             if (enc.getDirection() == cw){
-                strcpy(lcd_buf[1], "No ->Yes");
+                //lcd_buffer.print(1, "No ->Yes");
                 shure=true;
             }
             else{
-                strcpy(lcd_buf[1], "->No Yes");
+                //lcd_buffer.print(1, "->No Yes");
                 shure=false;
             }
         }
@@ -372,10 +342,8 @@ static void sensor_del(Key_Pressed_t key){
                 if (shure){
                     confd.add_sensor(current_sensor_n, 0);
                     confd.store_sensors();
-                    strcpy(lcd_buf[0], "Removed sensor");
-                    itoa(current_sensor_n, num, 10);
-                    strcpy(lcd_buf[1], num);
-                    lcd_buf[1][2] = '\0';
+                    //lcd_buffer.print(0, "Removed sensor");
+                    //lcd_buffer.prints(1, "- %d", current_sensor_n);
                     vTaskDelay(2000);
                 }
                 break;
@@ -394,16 +362,16 @@ static void sensor_show(Key_Pressed_t key){
     uint8_t addr = confd.get_address(current_sensor_n);
     while(1){
         if (addr == 0){
-            strcpy(lcd_buf[0], "Sensor absent");
-            strcpy(lcd_buf[1], "please add it!");
+            //lcd_buffer.print(0, "Sensor absent");
+            //lcd_buffer.print(1, "please add it!");
         }
         else{
             PZEM004Tv30 pzem(&Serial2, addr);
             voltage = pzem.voltage();
             current = pzem.current();
             energy = pzem.energy();
-            sprintf(lcd_buf[0], "V %.1f A %.2f", voltage, current);
-            sprintf(lcd_buf[1], "E %.2f", energy);
+            //lcd_buffer.prints(0, "V %.1f A %.2f\nE %.2f", voltage, current, energy);
+            //lcd_buffer.prints(1, "E %.2f", energy);
         }
         btn_state = enc_btn.isPressed();
         if (btn_state != old_btn_state){
