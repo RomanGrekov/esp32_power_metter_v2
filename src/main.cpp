@@ -45,6 +45,7 @@ LcdBuf lcd_buffer(lcd);
 void taskControlLed( void * parameter );
 void taskLcd( void * parameter );
 void taskEncoderRead( void * parameter);
+void taskMenu( void * parameter );
 
 /*
     Eeprom init
@@ -57,6 +58,20 @@ Confd confd(eeprom_cli);
     Mutex needed to make access to I2C bus atomic
 */
 SemaphoreHandle_t xMutexI2c;
+
+/*
+    Create queue object for encoder
+*/
+QueueHandle_t encActionsQueue;
+
+/*
+   Encoder actions
+*/
+enum EncActions{
+    encActionBtnPressed=1,
+    encActionCwMove,
+    encActionCcwMove
+};
 
 /*
     Current selected sensor number in lcd menu
@@ -88,6 +103,11 @@ void setup() {
     xMutexI2c = xSemaphoreCreateMutex();
 
     /*
+        Initialize encoder button queue
+    */
+    encActionsQueue = xQueueCreate(10, sizeof(EncActions));
+
+    /*
         Declare RTOS tasks
     */
     xTaskCreate(taskControlLed,
@@ -104,6 +124,12 @@ void setup() {
                 NULL);
     xTaskCreate(taskLcd,
                 "Lcd_show",
+                10000,
+                NULL,
+                1,
+                NULL);
+    xTaskCreate(taskMenu,
+                "Menu handle",
                 10000,
                 NULL,
                 1,
@@ -134,27 +160,49 @@ void taskControlLed( void * parameter ){
 void taskEncoderRead( void * parameter ) {
     bool old_btn_state=false;
     bool btn_state=false;
+    EncActions enc_actions;
 
     while(1){
         if (enc.isChanged()){
             if (enc.getDirection() == cw){
-                Log.notice("Enc: ->"CR);
-    			Menu_Navigate(MENU_NEXT);
+                Log.notice("Enc: ->" CR);
+                enc_actions = encActionCwMove;
             }
             else{
-                Log.notice("Enc: <-"CR);
-    			Menu_Navigate(MENU_PREVIOUS);
+                Log.notice("Enc: <-" CR);
+                enc_actions = encActionCcwMove;
             }
-
-            //Log.notice("%d"CR, enc.getRotation());
+            xQueueSend(encActionsQueue, &enc_actions, portMAX_DELAY);
         }
         btn_state = enc_btn.isPressed();
         if (btn_state != old_btn_state){
             Log.notice("Btn pressed: %d" CR, btn_state);
             old_btn_state = btn_state;
             if (btn_state == 0){
-        		Menu_EnterItem(KEY_NEXT);
-        		Menu_Navigate(MENU_CHILD);
+                enc_actions = encActionBtnPressed;
+                xQueueSend(encActionsQueue, &enc_actions, portMAX_DELAY);
+            }
+        }
+        vTaskDelay(10);
+    }
+}
+
+void taskMenu( void * parameter ) {
+    EncActions enc_action;
+    while(1){
+        if (uxQueueMessagesWaiting(encActionsQueue) > 0){
+            xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
+            switch(enc_action){
+                case encActionCwMove:
+			         Menu_Navigate(MENU_NEXT);
+                break;
+                case encActionCcwMove:
+			         Menu_Navigate(MENU_PREVIOUS);
+                break;
+                case encActionBtnPressed:
+            		Menu_EnterItem(KEY_NEXT);
+            		Menu_Navigate(MENU_CHILD);
+                break;
             }
         }
         vTaskDelay(100);
@@ -297,18 +345,14 @@ static void sensor_add(Key_Pressed_t key){
             }
         }
         else{
-            //lcd_buffer.print(0, "Failed to set new address");
+            lcd_buffer.print(0, "Failed to set new address");
         }
     }
-    bool old_btn_state=false;
-    bool btn_state=false;
+    EncActions enc_action;
     while(1){
-        btn_state = enc_btn.isPressed();
-        if (btn_state != old_btn_state){
-            old_btn_state = btn_state;
-            if (btn_state == 0){
-                break;
-            }
+        if (uxQueueMessagesWaiting(encActionsQueue) > 0){
+            xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
+            if (enc_action == encActionBtnPressed) break;
         }
         vTaskDelay(100);
     }
@@ -316,33 +360,29 @@ static void sensor_add(Key_Pressed_t key){
 }
 
 static void sensor_del(Key_Pressed_t key){
-    bool old_btn_state=false;
-    bool btn_state=false;
     bool shure=false;
-    char num[16];
+    EncActions enc_action;
 
     lcd_buffer.print(0, "Are you shure?\n->No Yes");
     while(1){
-        if (enc.isChanged()){
-            if (enc.getDirection() == cw){
-                lcd_buffer.print(1, "No ->Yes");
-                shure=true;
-            }
-            else{
-                lcd_buffer.print(1, "->No Yes");
-                shure=false;
-            }
-        }
-        btn_state = enc_btn.isPressed();
-        if (btn_state != old_btn_state){
-            old_btn_state = btn_state;
-            if (btn_state == 0){
-                if (shure){
-                    confd.add_sensor(current_sensor_n, 0);
-                    confd.store_sensors();
-                    lcd_buffer.print(0, "Removed sensor\n- %d", current_sensor_n);
-                    vTaskDelay(2000);
-                }
+        if (uxQueueMessagesWaiting(encActionsQueue) > 0){
+            xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
+            switch(enc_action){
+                case encActionCwMove:
+                    lcd_buffer.print(1, "No ->Yes");
+                    shure=true;
+                break;
+                case encActionCcwMove:
+                    lcd_buffer.print(1, "->No Yes");
+                    shure=false;
+                break;
+                case encActionBtnPressed:
+                    if (shure){
+                        confd.add_sensor(current_sensor_n, 0);
+                        confd.store_sensors();
+                        lcd_buffer.print(0, "Removed sensor\n- %d", current_sensor_n);
+                        vTaskDelay(2000);
+                    }
                 break;
             }
         }
@@ -350,9 +390,9 @@ static void sensor_del(Key_Pressed_t key){
     }
     Menu_Navigate(&Menu_2_1);
 }
+
 static void sensor_show(Key_Pressed_t key){
-    bool old_btn_state=false;
-    bool btn_state=false;
+    EncActions enc_action;
     float voltage;
     float current;
     float energy;
@@ -368,16 +408,13 @@ static void sensor_show(Key_Pressed_t key){
             energy = pzem.energy();
             lcd_buffer.print(0, "V %.1f A %.2f\nE %.2f", voltage, current, energy);
         }
-        btn_state = enc_btn.isPressed();
-        if (btn_state != old_btn_state){
-            old_btn_state = btn_state;
-            if (btn_state == 0){
-                break;
-            }
+        if (uxQueueMessagesWaiting(encActionsQueue) > 0){
+            xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
+            if (enc_action == encActionBtnPressed) break;
         }
         vTaskDelay(100);
     }
-    Menu_Navigate(&Menu_2_1);
+    Menu_Navigate(&Show_sensor);
 }
 
 static void sensor_enter(Key_Pressed_t key){
