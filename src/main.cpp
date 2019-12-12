@@ -76,6 +76,7 @@ enum EncActions{
 /*
     Current selected sensor number in lcd menu
 */
+#define MAX_SENSORS_AMOUNT 10
 int current_sensor_n=0;
 
 void setup() {
@@ -397,12 +398,12 @@ static void sensor_show(Key_Pressed_t key){
     float current;
     float energy;
     uint8_t addr = confd.get_address(current_sensor_n);
+    PZEM004Tv30 pzem(&Serial2, addr);
     while(1){
         if (addr == 0){
             lcd_buffer.print(0, "Sensor absent\nplease add it!");
         }
         else{
-            PZEM004Tv30 pzem(&Serial2, addr);
             voltage = pzem.voltage();
             current = pzem.current();
             energy = pzem.energy();
@@ -415,6 +416,81 @@ static void sensor_show(Key_Pressed_t key){
         vTaskDelay(100);
     }
     Menu_Navigate(&Show_sensor);
+}
+
+static void showAllSensorsRuntime(Key_Pressed_t key){
+    EncActions enc_action;
+    float voltage;
+    float current;
+    float energy;
+    uint8_t addr=0;
+    uint8_t working_sensors[MAX_SENSORS_AMOUNT];
+    int sensor_n=0;
+    int sensor_n_old=-1;
+    //TimerHandle_t tmr;
+    //int tmr_id=1;
+
+    //tmr = xTimerCreate("INcrement sensor", pdMS_TO_TICKS(1000), pdTRUE, (void *)tmr_id, &IncrementSensroN);
+    /*
+        Read sensors addresses from eeprom
+    */
+    Read_Sensors_Enter(KEY_OK);
+    /*
+        Find working sensors
+    */
+    // Clean array of working sensors
+    for(int i=0; i<MAX_SENSORS_AMOUNT-1; i++) working_sensors[i] = '\0';
+    int sens_amount=0;
+    // Search non zero address
+    for(int i=0; i<MAX_SENSORS_AMOUNT-1; i++){
+        addr = confd.get_address(i);
+        if (addr != 0){
+            working_sensors[sens_amount]=i;
+            sens_amount++;
+        }
+    }
+    if (sens_amount == 0 ){
+        lcd_buffer.print(0, "No one working sensors to show");
+        vTaskDelay(2000);
+    }
+    else{
+        sensor_n=0;
+        sensor_n_old=-1;
+        addr = confd.get_address(working_sensors[sensor_n]);
+        PZEM004Tv30 pzem(&Serial2, addr); // Fake init
+        while(1){
+            if (sensor_n != sensor_n_old){
+                Log.notice("Change sensor %d" CR, sensor_n);
+                addr = confd.get_address(working_sensors[sensor_n]);
+                Log.notice("Addr %d" CR, addr);
+                pzem.init(addr);
+                sensor_n_old = sensor_n;
+            }
+            voltage = pzem.voltage();
+            current = pzem.current();
+            energy = pzem.energy();
+            lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", working_sensors[sensor_n]+1, energy, voltage, current);
+            if (uxQueueMessagesWaiting(encActionsQueue) > 0){
+                xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
+                switch(enc_action){
+                    case encActionCwMove:
+                        if (sensor_n < sens_amount-1) sensor_n++;
+                        else sensor_n = 0;
+                    break;
+                    case encActionCcwMove:
+                        if (sensor_n > 0) sensor_n--;
+                        else sensor_n = sens_amount-1;
+                    break;
+                    case encActionBtnPressed:
+                        break;
+                    break;
+                }
+            }
+            vTaskDelay(100);
+        }
+    }
+
+    Menu_Navigate(&Menu_2);
 }
 
 static void sensor_enter(Key_Pressed_t key){

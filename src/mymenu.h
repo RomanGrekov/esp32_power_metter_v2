@@ -17,6 +17,7 @@ static void sensor_add(Key_Pressed_t key);
 static void sensor_del(Key_Pressed_t key);
 static void sensor_show(Key_Pressed_t key);
 static void sensor_add_select(int parent_index);
+static void showAllSensorsRuntime(Key_Pressed_t key);
 /*
     LCD print callback
 */
@@ -30,8 +31,8 @@ static void select_uppermenu(int parent_index){
 }
 
 //        NAME     NEXT,    PREV    PARENT,    CHILD      SelectCallback        EnterCallback  Text
-MENU_ITEM(Menu_1, Menu_2, Menu_3, NULL_MENU, Menu_1_1 , Level1Item1_Select, Level1Item1_Enter, "Settings", 0);
-MENU_ITEM(Menu_2, Menu_3, Menu_1, NULL_MENU, NULL_MENU, NULL              , NULL             , "Menu 2", 0);
+MENU_ITEM(Menu_1, Menu_2, Menu_3, NULL_MENU, NULL_MENU, NULL              , showAllSensorsRuntime , "Show sensors", 0);
+MENU_ITEM(Menu_2, Menu_3, Menu_1, NULL_MENU, Menu_1_1 , Level1Item1_Select, Level1Item1_Enter, "Settings", 0);
 MENU_ITEM(Menu_3, Menu_1, Menu_2, NULL_MENU, NULL_MENU, NULL              , NULL             , "Menu 3", 0);
 
 MENU_ITEM(Menu_1_1, Menu_1_2, UpperMenu1, NULL_MENU, Menu_2_1, NULL, NULL, "Sensors", 0);
