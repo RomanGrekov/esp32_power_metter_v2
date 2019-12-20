@@ -19,6 +19,7 @@
 #include "eeprom_cli.h"
 #include "confd.h"
 #include "lcd_buf.h"
+#include <Adafruit_MCP23017.h>
 
 /*
     Encoder pins
@@ -79,6 +80,16 @@ enum EncActions{
 #define MAX_SENSORS_AMOUNT 10
 int current_sensor_n=0;
 
+/*
+    Port expander
+*/
+Adafruit_MCP23017 mcp;
+void leds_init(void);
+void leds_off(uint8_t sensors_amount);
+void leds_on(uint8_t led_n);
+
+uint8_t get_working_sensors(uint8_t *working_sensors);
+
 void setup() {
     /*
         Setup logger
@@ -107,6 +118,14 @@ void setup() {
         Initialize encoder button queue
     */
     encActionsQueue = xQueueCreate(10, sizeof(EncActions));
+
+    /*
+        Start mcp
+    */
+    //mcp.begin(0x20);
+    mcp.begin();
+    leds_init();
+    leds_off(MAX_SENSORS_AMOUNT);
 
     /*
         Declare RTOS tasks
@@ -425,6 +444,7 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
     float energy;
     uint8_t addr=0;
     uint8_t working_sensors[MAX_SENSORS_AMOUNT];
+    uint8_t ws_amount=0;
     int sensor_n=0;
     int sensor_n_old=-1;
     //TimerHandle_t tmr;
@@ -438,18 +458,9 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
     /*
         Find working sensors
     */
-    // Clean array of working sensors
-    for(int i=0; i<MAX_SENSORS_AMOUNT-1; i++) working_sensors[i] = '\0';
-    int sens_amount=0;
-    // Search non zero address
-    for(int i=0; i<MAX_SENSORS_AMOUNT-1; i++){
-        addr = confd.get_address(i);
-        if (addr != 0){
-            working_sensors[sens_amount]=i;
-            sens_amount++;
-        }
-    }
-    if (sens_amount == 0 ){
+    ws_amount = get_working_sensors(working_sensors);
+
+    if (ws_amount == 0 ){
         lcd_buffer.print(0, "No one working sensors to show");
         vTaskDelay(2000);
     }
@@ -465,6 +476,11 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
                 Log.notice("Addr %d" CR, addr);
                 pzem.init(addr);
                 sensor_n_old = sensor_n;
+                xSemaphoreTake(xMutexI2c, portMAX_DELAY);
+                //mcp.digitalWrite(, HIGH);
+                leds_off(ws_amount);
+                leds_on(working_sensors[sensor_n]);
+                xSemaphoreGive(xMutexI2c);
             }
             voltage = pzem.voltage();
             current = pzem.current();
@@ -474,12 +490,12 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
                 xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
                 switch(enc_action){
                     case encActionCwMove:
-                        if (sensor_n < sens_amount-1) sensor_n++;
+                        if (sensor_n < ws_amount-1) sensor_n++;
                         else sensor_n = 0;
                     break;
                     case encActionCcwMove:
                         if (sensor_n > 0) sensor_n--;
-                        else sensor_n = sens_amount-1;
+                        else sensor_n = ws_amount-1;
                     break;
                     case encActionBtnPressed:
                         break;
@@ -494,4 +510,35 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
 }
 
 static void sensor_enter(Key_Pressed_t key){
+}
+
+void leds_init(void){
+    for(int i=0; i<MAX_SENSORS_AMOUNT; i++){
+        mcp.pinMode(i, OUTPUT);
+    }
+}
+void leds_off(uint8_t sensors_amount){
+    for(int i=0; i<sensors_amount; i++){
+        mcp.digitalWrite(i, LOW);
+    }
+}
+
+void leds_on(uint8_t led_n){
+    mcp.digitalWrite(led_n, HIGH);
+}
+
+uint8_t get_working_sensors(uint8_t *working_sensors){
+    uint8_t addr=0;
+
+    for(int i=0; i<MAX_SENSORS_AMOUNT-1; i++) working_sensors[i] = '\0';
+    uint8_t sens_amount=0;
+    // Search non zero address
+    for(int i=0; i<MAX_SENSORS_AMOUNT-1; i++){
+        addr = confd.get_address(i);
+        if (addr != 0){
+            working_sensors[sens_amount]=i;
+            sens_amount++;
+        }
+    }
+    return sens_amount;
 }

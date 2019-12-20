@@ -23,7 +23,7 @@ void LcdBuf::show(){
     int row=0;
     int col=-1;
     int pos=0;
-    _lcd.clear();
+    //_lcd.clear();
     while(pos < MAX_SCREEN_R * MAX_SCREEN_C){
         if(col >= (MAX_SCREEN_C-1)){
             row++;
