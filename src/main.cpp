@@ -88,7 +88,6 @@ void leds_init(void);
 void leds_off(uint8_t sensors_amount);
 void leds_on(uint8_t led_n);
 
-uint8_t get_working_sensors(uint8_t *working_sensors);
 
 void setup() {
     /*
@@ -443,7 +442,6 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
     float current;
     float energy;
     uint8_t addr=0;
-    uint8_t working_sensors[MAX_SENSORS_AMOUNT];
     uint8_t ws_amount=0;
     int sensor_n=0;
     int sensor_n_old=-1;
@@ -458,7 +456,7 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
     /*
         Find working sensors
     */
-    ws_amount = get_working_sensors(working_sensors);
+    ws_amount = confd.get_working_sensors_n();
 
     if (ws_amount == 0 ){
         lcd_buffer.print(0, "No one working sensors to show");
@@ -467,25 +465,25 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
     else{
         sensor_n=0;
         sensor_n_old=-1;
-        addr = confd.get_address(working_sensors[sensor_n]);
+        addr = confd.get_address(confd.sensors[sensor_n]);
         PZEM004Tv30 pzem(&Serial2, addr); // Fake init
         while(1){
             if (sensor_n != sensor_n_old){
                 Log.notice("Change sensor %d" CR, sensor_n);
-                addr = confd.get_address(working_sensors[sensor_n]);
+                addr = confd.get_address(confd.sensors[sensor_n]);
                 Log.notice("Addr %d" CR, addr);
                 pzem.init(addr);
                 sensor_n_old = sensor_n;
                 xSemaphoreTake(xMutexI2c, portMAX_DELAY);
                 //mcp.digitalWrite(, HIGH);
                 leds_off(ws_amount);
-                leds_on(working_sensors[sensor_n]);
+                leds_on(confd.sensors[sensor_n]);
                 xSemaphoreGive(xMutexI2c);
             }
             voltage = pzem.voltage();
             current = pzem.current();
             energy = pzem.energy();
-            lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", working_sensors[sensor_n]+1, energy, voltage, current);
+            lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", confd.sensors[sensor_n]+1, energy, voltage, current);
             if (uxQueueMessagesWaiting(encActionsQueue) > 0){
                 xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
                 switch(enc_action){
@@ -525,20 +523,4 @@ void leds_off(uint8_t sensors_amount){
 
 void leds_on(uint8_t led_n){
     mcp.digitalWrite(led_n, HIGH);
-}
-
-uint8_t get_working_sensors(uint8_t *working_sensors){
-    uint8_t addr=0;
-
-    for(int i=0; i<MAX_SENSORS_AMOUNT-1; i++) working_sensors[i] = '\0';
-    uint8_t sens_amount=0;
-    // Search non zero address
-    for(int i=0; i<MAX_SENSORS_AMOUNT-1; i++){
-        addr = confd.get_address(i);
-        if (addr != 0){
-            working_sensors[sens_amount]=i;
-            sens_amount++;
-        }
-    }
-    return sens_amount;
 }

@@ -24,11 +24,12 @@ public:
     uint8_t get_address(uint8_t index);
     void add_sensor(uint8_t indes, uint8_t addr);
     uint8_t store_sensors(void);
+    uint8_t get_working_sensors_n();
 
+    uint8_t sensors[SENSORS_AMOUNT];
 private:
     EepromCli& _eeprom;
 
-    uint8_t sensors[SENSORS_AMOUNT];
 };
 
 #endif
