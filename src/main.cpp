@@ -313,7 +313,6 @@ static void sensor_add_select(int parent_index){
 static void sensor_add(Key_Pressed_t key){
     bool res;
     uint8_t res_int;
-    char num[16];
     uint8_t dev_addr=0;
 
     lcd_buffer.print(0, "Searching sensors");
