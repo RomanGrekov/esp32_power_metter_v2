@@ -19,7 +19,7 @@
 #include "eeprom_cli.h"
 #include "confd.h"
 #include "lcd_buf.h"
-#include <Adafruit_MCP23017.h>
+#include "leds.h"
 
 /*
     Encoder pins
@@ -39,31 +39,12 @@ Pushbutton enc_btn(ENC_BTN_PIN);
 LiquidCrystal_I2C lcd(SCREEN_ADDR, MAX_SCREEN_C, MAX_SCREEN_R);
 LcdBuf lcd_buffer(lcd);
 
-
-/*
-    RTOS tasks prototypes
-*/
-void taskControlLed( void * parameter );
-void taskLcd( void * parameter );
-void taskEncoderRead( void * parameter);
-void taskMenu( void * parameter );
-
 /*
     Eeprom init
 */
 //EepromCli eeprom_cli(21, 22, 0x50);
 EepromCli eeprom_cli(0x50);
 Confd confd(eeprom_cli);
-
-/*
-    Mutex needed to make access to I2C bus atomic
-*/
-SemaphoreHandle_t xMutexI2c;
-
-/*
-    Create queue object for encoder
-*/
-QueueHandle_t encActionsQueue;
 
 /*
    Encoder actions
@@ -81,13 +62,50 @@ enum EncActions{
 int current_sensor_n=0;
 
 /*
-    Port expander
+  Mcp23017 connected leds
 */
-Adafruit_MCP23017 mcp;
-void leds_init(void);
-void leds_off(uint8_t sensors_amount);
-void leds_on(uint8_t led_n);
+McpLeds Leds(0x20, MAX_SENSORS_AMOUNT);
 
+/*
+  Do get data from sensors
+*/
+bool DO_READ_SENSORS=false;
+/*
+  Struct with sensors data
+*/
+struct SensorData {
+  uint8_t address=0;
+  float V;
+  float A;
+  float Kwh;
+};
+/*
+  Array of all sensors data
+*/
+SensorData sensors_data[MAX_SENSORS_AMOUNT];
+/*
+  Mutex to block reading when write
+*/
+SemaphoreHandle_t xMutexSensorRead;
+
+/*
+    Create queue object for encoder
+*/
+QueueHandle_t encActionsQueue;
+
+/*
+    Mutex needed to make access to I2C bus atomic
+*/
+SemaphoreHandle_t xMutexI2c;
+
+/*
+    RTOS tasks prototypes
+*/
+void taskControlLed( void * parameter );
+void taskLcd( void * parameter );
+void taskEncoderRead( void * parameter);
+void taskMenu( void * parameter );
+void taskSensorsRead( void * parameter );
 
 void setup() {
     /*
@@ -96,7 +114,7 @@ void setup() {
     Serial.begin(9600);
     while(!Serial && !Serial.available()){}
     Log.begin(LOG_LEVEL_VERBOSE, &Serial);
-    Log.notice("###### Start logger ######"CR);
+    Log.notice("###### Start logger ######" CR);
 
     /*
         Setup encoder
@@ -104,9 +122,11 @@ void setup() {
     enc.begin([]{enc.EncChanged_ISR();});
     //enc.setRotation(-10, 10, false);
 
-	/* Set up the default menu text write callback, and navigate to an absolute menu item entry. */
-	Menu_SetGenericWriteCallback(Generic_Write);
-	Menu_Navigate(&Menu_1);
+  	/*
+      Set up the default menu text write callback, and navigate to an absolute menu item entry.
+    */
+  	Menu_SetGenericWriteCallback(Generic_Write);
+  	Menu_Navigate(&Menu_1);
 
     /*
         Mutex needed to make access to I2C bus atomic
@@ -114,17 +134,19 @@ void setup() {
     xMutexI2c = xSemaphoreCreateMutex();
 
     /*
+      Mutex to block sensor reading when write
+    */
+    xMutexSensorRead = xSemaphoreCreateMutex();
+
+    /*
         Initialize encoder button queue
     */
     encActionsQueue = xQueueCreate(10, sizeof(EncActions));
 
     /*
-        Start mcp
+        Start leds
     */
-    //mcp.begin(0x20);
-    mcp.begin();
-    leds_init();
-    leds_off(MAX_SENSORS_AMOUNT);
+    Leds.init();
 
     /*
         Declare RTOS tasks
@@ -149,6 +171,12 @@ void setup() {
                 NULL);
     xTaskCreate(taskMenu,
                 "Menu handle",
+                10000,
+                NULL,
+                1,
+                NULL);
+    xTaskCreate(taskSensorsRead,
+                "Read sensors task",
                 10000,
                 NULL,
                 1,
@@ -246,16 +274,19 @@ void taskLcd( void * parameter ) {
     }
 }
 
+void taskSensorsRead( void * parameter ) {
+}
+
 /** Example menu item specific enter callback function, run when the associated menu item is entered. */
 static void Level1Item1_Select(int parent_index)
 {
-	Log.notice("Select"CR);
+	Log.notice("Select" CR);
 }
 
 /** Example menu item specific select callback function, run when the associated menu item is selected. */
 static void Level1Item1_Enter(Key_Pressed_t key)
 {
-	Log.notice("Enter"CR);
+	Log.notice("Enter" CR);
 }
 
 /** Generic function to write the text of a menu.
@@ -271,7 +302,56 @@ static void Generic_Write(const char* Text)
 }
 
 void lcd_print(const char* _string){
+    uint8_t addr=0;
+    int index_n=0;
+    uint8_t indexes[MAX_SENSORS_AMOUNT];
+    bool do_not_read_old=DO_READ_SENSORS;
 
+    PZEM004Tv30 pzem(&Serial2, addr); // Fake init
+    uint8_t ws_amount=0;
+    while(1){
+      if (DO_READ_SENSORS){
+          while(ws_amount == 0){
+              /*
+                  Read sensors addresses from eeprom
+              */
+              Read_Sensors_Enter(KEY_OK);
+              /*
+                  Find working sensors
+              */
+              ws_amount = confd.get_sensors_indexes(indexes);
+
+              if (ws_amount == 0 ){
+                  Log.error( "No one working sensors to show" CR);
+                  vTaskDelay(5000);
+              }
+              index_n=0;
+          }
+          addr = confd.get_address(indexes[index_n]);
+          xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
+          pzem.init(addr);
+          sensors_data[indexes[index_n]].address = addr;
+          sensors_data[indexes[index_n]].V = pzem.voltage();
+          sensors_data[indexes[index_n]].A = pzem.current();
+          sensors_data[indexes[index_n]].Kwh = pzem.energy();
+          xSemaphoreGive(xMutexSensorRead);
+
+          if (index_n < ws_amount-1) index_n++;
+          else index_n = 0;
+          if (do_not_read_old != DO_READ_SENSORS) do_not_read_old = DO_READ_SENSORS;
+      }
+      else {
+          if (do_not_read_old != DO_READ_SENSORS){
+              do_not_read_old = DO_READ_SENSORS;
+              for(int i=0; i<MAX_SENSORS_AMOUNT; i++){
+                  sensors_data[i].V=0;
+                  sensors_data[i].A=0;
+                  sensors_data[i].Kwh=0;
+              }
+          }
+      }
+      vTaskDelay(1000);
+    }
 }
 
 static void Read_Sensors_Enter(Key_Pressed_t key){
@@ -317,6 +397,10 @@ static void sensor_add(Key_Pressed_t key){
 
     lcd_buffer.print(0, "Searching sensors");
 
+    /*
+      Do not try to read data from sensors
+    */
+    DO_READ_SENSORS = false;
     // Init pzem
     #define MAX_DEVS 0xf8
     #define CMD_RIR         0X04
@@ -381,6 +465,11 @@ static void sensor_del(Key_Pressed_t key){
     bool shure=false;
     EncActions enc_action;
 
+    /*
+      Do not try to read data from sensors
+    */
+    DO_READ_SENSORS = false;
+
     lcd_buffer.print(0, "Are you shure?\n->No Yes");
     while(1){
         if (uxQueueMessagesWaiting(encActionsQueue) > 0){
@@ -396,7 +485,7 @@ static void sensor_del(Key_Pressed_t key){
                 break;
                 case encActionBtnPressed:
                     if (shure){
-                        confd.add_sensor(current_sensor_n, 0);
+                        confd.del_sensor(current_sensor_n);
                         confd.store_sensors();
                         lcd_buffer.print(0, "Removed sensor\n- %d", current_sensor_n);
                         vTaskDelay(2000);
@@ -411,20 +500,16 @@ static void sensor_del(Key_Pressed_t key){
 
 static void sensor_show(Key_Pressed_t key){
     EncActions enc_action;
-    float voltage;
-    float current;
-    float energy;
+    DO_READ_SENSORS = true;
     uint8_t addr = confd.get_address(current_sensor_n);
-    PZEM004Tv30 pzem(&Serial2, addr);
     while(1){
         if (addr == 0){
             lcd_buffer.print(0, "Sensor absent\nplease add it!");
         }
         else{
-            voltage = pzem.voltage();
-            current = pzem.current();
-            energy = pzem.energy();
-            lcd_buffer.print(0, "V %.1f A %.2f\nE %.2f", voltage, current, energy);
+            lcd_buffer.print(0, "V %.1f A %.2f\nE %.2f", sensors_data[current_sensor_n].V,
+                                                         sensors_data[current_sensor_n].A,
+                                                         sensors_data[current_sensor_n].Kwh);
         }
         if (uxQueueMessagesWaiting(encActionsQueue) > 0){
             xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
@@ -437,62 +522,41 @@ static void sensor_show(Key_Pressed_t key){
 
 static void showAllSensorsRuntime(Key_Pressed_t key){
     EncActions enc_action;
-    float voltage;
-    float current;
-    float energy;
-    uint8_t addr=0;
     uint8_t ws_amount=0;
-    int sensor_n=0;
-    int sensor_n_old=-1;
-    //TimerHandle_t tmr;
-    //int tmr_id=1;
+    int index_n_old=-1;
+    uint8_t index_n=0;
+    uint8_t indexes[MAX_SENSORS_AMOUNT];
 
-    //tmr = xTimerCreate("INcrement sensor", pdMS_TO_TICKS(1000), pdTRUE, (void *)tmr_id, &IncrementSensroN);
-    /*
-        Read sensors addresses from eeprom
-    */
-    Read_Sensors_Enter(KEY_OK);
-    /*
-        Find working sensors
-    */
-    ws_amount = confd.get_working_sensors_n();
+    ws_amount = confd.get_sensors_indexes(indexes);
 
     if (ws_amount == 0 ){
         lcd_buffer.print(0, "No one working sensors to show");
         vTaskDelay(2000);
     }
     else{
-        sensor_n=0;
-        sensor_n_old=-1;
-        addr = confd.get_address(confd.sensors[sensor_n]);
-        PZEM004Tv30 pzem(&Serial2, addr); // Fake init
+        index_n=0;
+        index_n_old=-1;
         while(1){
-            if (sensor_n != sensor_n_old){
-                Log.notice("Change sensor %d" CR, sensor_n);
-                addr = confd.get_address(confd.sensors[sensor_n]);
-                Log.notice("Addr %d" CR, addr);
-                pzem.init(addr);
-                sensor_n_old = sensor_n;
+            if (index_n != index_n_old){
+                index_n_old = index_n;
                 xSemaphoreTake(xMutexI2c, portMAX_DELAY);
-                //mcp.digitalWrite(, HIGH);
-                leds_off(ws_amount);
-                leds_on(confd.sensors[sensor_n]);
+                Leds.on_only(indexes[index_n]);
                 xSemaphoreGive(xMutexI2c);
             }
-            voltage = pzem.voltage();
-            current = pzem.current();
-            energy = pzem.energy();
-            lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", confd.sensors[sensor_n]+1, energy, voltage, current);
+            lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", indexes[index_n]+1,
+                                                                   sensors_data[indexes[index_n]].Kwh,
+                                                                   sensors_data[indexes[index_n]].V,
+                                                                   sensors_data[indexes[index_n]].A);
             if (uxQueueMessagesWaiting(encActionsQueue) > 0){
                 xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
                 switch(enc_action){
                     case encActionCwMove:
-                        if (sensor_n < ws_amount-1) sensor_n++;
-                        else sensor_n = 0;
+                        if (index_n < ws_amount-1) index_n++;
+                        else index_n = 0;
                     break;
                     case encActionCcwMove:
-                        if (sensor_n > 0) sensor_n--;
-                        else sensor_n = ws_amount-1;
+                        if (index_n > 0) index_n--;
+                        else index_n = ws_amount-1;
                     break;
                     case encActionBtnPressed:
                         break;
@@ -507,19 +571,4 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
 }
 
 static void sensor_enter(Key_Pressed_t key){
-}
-
-void leds_init(void){
-    for(int i=0; i<MAX_SENSORS_AMOUNT; i++){
-        mcp.pinMode(i, OUTPUT);
-    }
-}
-void leds_off(uint8_t sensors_amount){
-    for(int i=0; i<sensors_amount; i++){
-        mcp.digitalWrite(i, LOW);
-    }
-}
-
-void leds_on(uint8_t led_n){
-    mcp.digitalWrite(led_n, HIGH);
 }
