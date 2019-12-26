@@ -296,7 +296,7 @@ void taskSensorsRead( void * parameter ) {
 
               if (ws_amount == 0 ){
                   Log.error( "No one working sensors to show" CR);
-                  vTaskDelay(5000);
+                  vTaskDelay(1000);
               }
               index_n=0;
           }
