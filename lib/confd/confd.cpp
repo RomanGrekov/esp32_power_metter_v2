@@ -1,4 +1,5 @@
 #include "confd.h"
+#include <Arduino.h>
 
 Confd::Confd(EepromCli &eeprom)
 : _eeprom(eeprom)

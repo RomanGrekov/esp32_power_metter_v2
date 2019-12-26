@@ -275,33 +275,6 @@ void taskLcd( void * parameter ) {
 }
 
 void taskSensorsRead( void * parameter ) {
-}
-
-/** Example menu item specific enter callback function, run when the associated menu item is entered. */
-static void Level1Item1_Select(int parent_index)
-{
-	Log.notice("Select" CR);
-}
-
-/** Example menu item specific select callback function, run when the associated menu item is selected. */
-static void Level1Item1_Enter(Key_Pressed_t key)
-{
-	Log.notice("Enter" CR);
-}
-
-/** Generic function to write the text of a menu.
- *
- *  \param[in] Text   Text of the selected menu to write, in \ref MENU_ITEM_STORAGE memory space
- */
-static void Generic_Write(const char* Text)
-{
-	if (Text){
-        lcd_buffer.clear();
-        lcd_buffer.print(0, Text);
-    }
-}
-
-void lcd_print(const char* _string){
     uint8_t addr=0;
     int index_n=0;
     uint8_t indexes[MAX_SENSORS_AMOUNT];
@@ -354,6 +327,30 @@ void lcd_print(const char* _string){
     }
 }
 
+/** Example menu item specific enter callback function, run when the associated menu item is entered. */
+static void Level1Item1_Select(int parent_index)
+{
+	Log.notice("Select" CR);
+}
+
+/** Example menu item specific select callback function, run when the associated menu item is selected. */
+static void Level1Item1_Enter(Key_Pressed_t key)
+{
+	Log.notice("Enter" CR);
+}
+
+/** Generic function to write the text of a menu.
+ *
+ *  \param[in] Text   Text of the selected menu to write, in \ref MENU_ITEM_STORAGE memory space
+ */
+static void Generic_Write(const char* Text)
+{
+	if (Text){
+        lcd_buffer.clear();
+        lcd_buffer.print(0, Text);
+    }
+}
+
 static void Read_Sensors_Enter(Key_Pressed_t key){
     /*
         Add test sensor
@@ -371,7 +368,6 @@ static void Read_Sensors_Enter(Key_Pressed_t key){
     if (res != 0) Log.error("Failed to read sensor addresses" CR);
     xSemaphoreGive(xMutexI2c);
     Log.notice("Done");
-
 }
 static void sensor_select(int parent_index){
     /*
@@ -507,9 +503,11 @@ static void sensor_show(Key_Pressed_t key){
             lcd_buffer.print(0, "Sensor absent\nplease add it!");
         }
         else{
+            xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
             lcd_buffer.print(0, "V %.1f A %.2f\nE %.2f", sensors_data[current_sensor_n].V,
                                                          sensors_data[current_sensor_n].A,
                                                          sensors_data[current_sensor_n].Kwh);
+            xSemaphoreGive(xMutexSensorRead);
         }
         if (uxQueueMessagesWaiting(encActionsQueue) > 0){
             xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
@@ -527,44 +525,49 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
     uint8_t index_n=0;
     uint8_t indexes[MAX_SENSORS_AMOUNT];
 
-    ws_amount = confd.get_sensors_indexes(indexes);
+    Read_Sensors_Enter(KEY_OK);
 
-    if (ws_amount == 0 ){
-        lcd_buffer.print(0, "No one working sensors to show");
-        vTaskDelay(2000);
-    }
-    else{
-        index_n=0;
-        index_n_old=-1;
-        while(1){
-            if (index_n != index_n_old){
-                index_n_old = index_n;
-                xSemaphoreTake(xMutexI2c, portMAX_DELAY);
-                Leds.on_only(indexes[index_n]);
-                xSemaphoreGive(xMutexI2c);
-            }
-            lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", indexes[index_n]+1,
-                                                                   sensors_data[indexes[index_n]].Kwh,
-                                                                   sensors_data[indexes[index_n]].V,
-                                                                   sensors_data[indexes[index_n]].A);
-            if (uxQueueMessagesWaiting(encActionsQueue) > 0){
-                xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
-                switch(enc_action){
-                    case encActionCwMove:
-                        if (index_n < ws_amount-1) index_n++;
-                        else index_n = 0;
-                    break;
-                    case encActionCcwMove:
-                        if (index_n > 0) index_n--;
-                        else index_n = ws_amount-1;
-                    break;
-                    case encActionBtnPressed:
-                        break;
-                    break;
-                }
-            }
+    DO_READ_SENSORS = true;
+
+    index_n=0;
+    index_n_old=-1;
+    while(1){
+        if (ws_amount == 0 ){
+            ws_amount = confd.get_sensors_indexes(indexes);
+            lcd_buffer.print(0, "No one working sensors to show");
+            Log.error("No sensors to read" CR);
             vTaskDelay(100);
+            break;
         }
+        if (index_n != index_n_old){
+            index_n_old = index_n;
+            xSemaphoreTake(xMutexI2c, portMAX_DELAY);
+            Leds.on_only(indexes[index_n]);
+            xSemaphoreGive(xMutexI2c);
+        }
+        xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
+        lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", indexes[index_n]+1,
+                                                               sensors_data[indexes[index_n]].Kwh,
+                                                               sensors_data[indexes[index_n]].V,
+                                                               sensors_data[indexes[index_n]].A);
+        xSemaphoreGive(xMutexSensorRead);
+        if (uxQueueMessagesWaiting(encActionsQueue) > 0){
+            xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
+            switch(enc_action){
+                case encActionCwMove:
+                    if (index_n < ws_amount-1) index_n++;
+                    else index_n = 0;
+                break;
+                case encActionCcwMove:
+                    if (index_n > 0) index_n--;
+                    else index_n = ws_amount-1;
+                break;
+                case encActionBtnPressed:
+                    break;
+                break;
+            }
+        }
+        vTaskDelay(100);
     }
 
     Menu_Navigate(&Menu_2);

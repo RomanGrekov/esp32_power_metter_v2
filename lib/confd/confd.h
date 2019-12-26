@@ -29,6 +29,9 @@ public:
     void del_sensor(uint8_t index);
     uint8_t store_sensors(void);
 
+    uint8_t sensors[SENSORS_AMOUNT];
+    uint8_t sensors_indexes[SENSORS_AMOUNT];
+    uint8_t cur_index;
 private:
     void update_indexes(void);
     void add_index(uint8_t index);
@@ -37,9 +40,6 @@ private:
 
     EepromCli& _eeprom;
 
-    uint8_t sensors[SENSORS_AMOUNT];
-    uint8_t sensors_indexes[SENSORS_AMOUNT];
-    uint8_t cur_index;
 };
 
 #endif
