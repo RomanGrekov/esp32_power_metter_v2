@@ -32,7 +32,13 @@ void LcdBuf::show(){
         else col++;
         //pos = col + row*MAX_SCREEN_C;
         if ((col + row*MAX_SCREEN_C) >= MAX_SCREEN_R * MAX_SCREEN_C) break;
-        if (buffer[pos] == '\0' || buffer[pos] == '\n') col = MAX_SCREEN_C;
+        if (buffer[pos] == '\0' || buffer[pos] == '\n'){
+            while(col < MAX_SCREEN_C){
+                _lcd.write(' ');
+                col++;
+            }
+            col = MAX_SCREEN_C;
+        }
         else {
             _lcd.setCursor(col, row);
             _lcd.write(buffer[pos]);

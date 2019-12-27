@@ -64,7 +64,7 @@ int current_sensor_n=0;
 /*
   Mcp23017 connected leds
 */
-McpLeds Leds(0x20, MAX_SENSORS_AMOUNT);
+McpLeds Leds(0, MAX_SENSORS_AMOUNT);
 
 /*
   Do get data from sensors
@@ -263,12 +263,19 @@ void taskLcd( void * parameter ) {
     */
     lcd.init();
     lcd.backlight();
+    bool need_retry=false;
 
     while(1){
-        if (lcd_buffer.is_changed()){
-            xSemaphoreTake(xMutexI2c, portMAX_DELAY);
-            lcd_buffer.show();
-            xSemaphoreGive(xMutexI2c);
+        if (lcd_buffer.is_changed() || need_retry){
+            if (xSemaphoreTake(xMutexI2c, pdMS_TO_TICKS(100)) == pdTRUE){
+                lcd_buffer.show();
+                xSemaphoreGive(xMutexI2c);
+                need_retry = false;
+            }
+            else{
+                need_retry = true;
+                vTaskDelay(10);
+            }
         }
         vTaskDelay(100);
     }
@@ -363,10 +370,16 @@ static void Read_Sensors_Enter(Key_Pressed_t key){
     */
     Log.notice("Reading sensors addresses");
     for (int i=0; i < SENSORS_AMOUNT; i++) confd.add_sensor(i, 0);
-    xSemaphoreTake(xMutexI2c, portMAX_DELAY);
-    uint8_t res = confd.read_sensors();
-    if (res != 0) Log.error("Failed to read sensor addresses" CR);
-    xSemaphoreGive(xMutexI2c);
+    bool done=false;
+    while(!done){
+        if (xSemaphoreTake(xMutexI2c, pdMS_TO_TICKS(100)) == pdTRUE){
+            uint8_t res = confd.read_sensors();
+            if (res != 0) Log.error("Failed to read sensor addresses" CR);
+            xSemaphoreGive(xMutexI2c);
+            done = true;
+        }
+        else vTaskDelay(10);
+    }
     Log.notice("Done");
 }
 static void sensor_select(int parent_index){
@@ -430,9 +443,15 @@ static void sensor_add(Key_Pressed_t key){
         if (res){
             Log.notice("Storing sensor..." CR);
             confd.add_sensor(current_sensor_n, current_sensor_n+1);
-            xSemaphoreTake(xMutexI2c, portMAX_DELAY);
-            res_int = confd.store_sensors();
-            xSemaphoreGive(xMutexI2c);
+            bool done=false;
+            while (!done){
+                if (xSemaphoreTake(xMutexI2c, pdMS_TO_TICKS(100)) == pdTRUE){
+                    res_int = confd.store_sensors();
+                    xSemaphoreGive(xMutexI2c);
+                    done = true;
+                }
+                else vTaskDelay(10);
+            }
             if (res_int != 0){
                 Log.error("Failed to store sensors");
                 lcd_buffer.print(0, "Failed to save sensor to mem");
@@ -537,13 +556,21 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
             lcd_buffer.print(0, "No one working sensors to show");
             Log.error("No sensors to read" CR);
             vTaskDelay(100);
-            break;
+            continue;
         }
         if (index_n != index_n_old){
+            Log.notice("Change led" CR);
             index_n_old = index_n;
-            xSemaphoreTake(xMutexI2c, portMAX_DELAY);
-            Leds.on_only(indexes[index_n]);
-            xSemaphoreGive(xMutexI2c);
+            bool done=false;
+            while (!done){
+                if (xSemaphoreTake(xMutexI2c, pdMS_TO_TICKS(100)) == pdTRUE){
+                    Leds.on_only(indexes[index_n]);
+                    xSemaphoreGive(xMutexI2c);
+                    done = true;
+                }
+                else vTaskDelay(10);
+            }
+            vTaskDelay(100);
         }
         xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
         lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", indexes[index_n]+1,

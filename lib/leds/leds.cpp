@@ -1,20 +1,20 @@
 #include "leds.h"
 
-McpLeds::McpLeds(int address, int leds_n)
+McpLeds::McpLeds(int address, uint8_t leds_n)
 {
   _address = address;
   _leds_n = leds_n;
 }
 
 void McpLeds::init(){
-    mcp.begin(_address);
+    this->mcp.begin(_address);
     for(int i=0; i<_leds_n; i++){
-        mcp.pinMode(i, OUTPUT);
+        this->mcp.pinMode(i, OUTPUT);
     }
 }
 
-void McpLeds::set(uint8_t led_n, int state){
-    mcp.digitalWrite(led_n, state);
+void McpLeds::set(uint8_t led_n, uint8_t state){
+    this->mcp.digitalWrite(led_n, state);
 }
 
 void McpLeds::off(uint8_t led_n){
@@ -31,5 +31,6 @@ void McpLeds::on_only(uint8_t led_n){
 }
 
 void McpLeds::off_all(){
-    for(int i=0; i<_leds_n; i++) off(i);
+    //for(int i=0; i<_leds_n; i++) off(i);
+    this->mcp.writeGPIOAB(0x0);
 }

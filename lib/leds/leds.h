@@ -10,7 +10,7 @@
 class McpLeds
 {
 public:
-  McpLeds(int address, int leds_n);
+  McpLeds(int address, uint8_t leds_n);
   void init();
   void off(uint8_t led_n);
   void off_all(void);
@@ -18,10 +18,10 @@ public:
   void on_only(uint8_t led_n);
 
 private:
-  void set(uint8_t led_n, int state);
+  void set(uint8_t led_n, uint8_t state);
 
   Adafruit_MCP23017 mcp;
-  int _leds_n;
+  uint8_t _leds_n;
   int _address;
 
 };

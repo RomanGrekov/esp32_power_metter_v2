@@ -31,9 +31,9 @@ static void select_uppermenu(int parent_index){
 }
 
 //        NAME     NEXT,    PREV    PARENT,    CHILD      SelectCallback        EnterCallback  Text
-MENU_ITEM(Menu_1, Menu_2, Menu_3, NULL_MENU, NULL_MENU, NULL              , showAllSensorsRuntime , "Show sensors\n", 0);
-MENU_ITEM(Menu_2, Menu_3, Menu_1, NULL_MENU, Menu_1_1 , Level1Item1_Select, Level1Item1_Enter, "Settings\n", 0);
-MENU_ITEM(Menu_3, Menu_1, Menu_2, NULL_MENU, NULL_MENU, NULL              , NULL             , "Menu 3\n", 0);
+MENU_ITEM(Menu_1, Menu_2, Menu_3, NULL_MENU, NULL_MENU, NULL              , showAllSensorsRuntime , "Show sensors", 0);
+MENU_ITEM(Menu_2, Menu_3, Menu_1, NULL_MENU, Menu_1_1 , Level1Item1_Select, Level1Item1_Enter, "Settings", 0);
+MENU_ITEM(Menu_3, Menu_1, Menu_2, NULL_MENU, NULL_MENU, NULL              , NULL             , "Menu 3", 0);
 
 MENU_ITEM(Menu_1_1, Menu_1_2, UpperMenu1, NULL_MENU, Menu_2_1, NULL, NULL, "Sensors", 0);
 MENU_ITEM(Menu_1_2, UpperMenu1, Menu_1_1, NULL_MENU, NULL_MENU, NULL, NULL, "Submenu 2", 0);
