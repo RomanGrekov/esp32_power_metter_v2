@@ -78,6 +78,7 @@ struct SensorData {
   float V;
   float A;
   float Kwh;
+  bool is_charging;
 };
 /*
   Array of all sensors data
@@ -106,6 +107,8 @@ void taskLcd( void * parameter );
 void taskEncoderRead( void * parameter);
 void taskMenu( void * parameter );
 void taskSensorsRead( void * parameter );
+void taskDetectCharging( void * parameter );
+void taskChargingLeds( void * parameter );
 
 void setup() {
     /*
@@ -178,6 +181,18 @@ void setup() {
     xTaskCreate(taskSensorsRead,
                 "Read sensors task",
                 10000,
+                NULL,
+                1,
+                NULL);
+    xTaskCreate(taskDetectCharging,
+                "Detect if charging in progress",
+                1000,
+                NULL,
+                1,
+                NULL);
+    xTaskCreate(taskChargingLeds,
+                "Enable leds when charging",
+                1000,
                 NULL,
                 1,
                 NULL);
@@ -331,6 +346,55 @@ void taskSensorsRead( void * parameter ) {
           }
       }
       vTaskDelay(1000);
+    }
+}
+
+void vCallbackNotCharging( xTimerHandle xTimer ){
+    uint32_t timer_id;
+    timer_id = (uint32_t)pvTimerGetTimerID(xTimer);
+    sensors_data[timer_id].is_charging = false;
+}
+
+void taskDetectCharging( void * parameter ) {
+    #define CHARGING_TRASHOLD 60 // Seconds
+    xTimerHandle timers[MAX_SENSORS_AMOUNT];
+
+    while (1) {
+        for (uint32_t id=0; id<MAX_SENSORS_AMOUNT; id++){
+            if (sensors_data[id].A > 0){
+                sensors_data[id].is_charging = true;
+                if(xTimerIsTimerActive(timers[id]) != pdFALSE){
+                    BaseType_t res = xTimerStop(timers[id], pdMS_TO_TICKS(100));
+                    if (res != pdPASS) Log.error("Failed to stop timer for sensor: %d" CR, id);
+                }
+            }else{
+                if(sensors_data[id].is_charging){
+                    timers[id] = xTimerCreate("Is chargin treshold", pdMS_TO_TICKS(CHARGING_TRASHOLD * 1000),
+                                             pdFALSE, (void *)id, &vCallbackNotCharging);
+                    if (timers[id] == NULL) Log.error("Failed to create timer for sensor: %d" CR, id);
+                }
+            }
+        }
+        vTaskDelay(100);
+    }
+}
+
+void taskChargingLeds( void * parameter ) {
+    bool done=false;
+
+    while(1){
+        done=false;
+        while (!done){
+            if (xSemaphoreTake(xMutexI2c, pdMS_TO_TICKS(100)) == pdTRUE){
+                for (int id=0; id<MAX_SENSORS_AMOUNT; id++){
+                    if (sensors_data[id].is_charging) Leds.on(id);
+                    else Leds.off(id);
+                }
+                xSemaphoreGive(xMutexI2c);
+                done = true;
+            } else vTaskDelay(10);
+        }
+        vTaskDelay(100);
     }
 }
 
@@ -540,7 +604,6 @@ static void sensor_show(Key_Pressed_t key){
 static void showAllSensorsRuntime(Key_Pressed_t key){
     EncActions enc_action;
     uint8_t ws_amount=0;
-    int index_n_old=-1;
     uint8_t index_n=0;
     uint8_t indexes[MAX_SENSORS_AMOUNT];
 
@@ -549,7 +612,6 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
     DO_READ_SENSORS = true;
 
     index_n=0;
-    index_n_old=-1;
     while(1){
         if (ws_amount == 0 ){
             ws_amount = confd.get_sensors_indexes(indexes);
@@ -557,20 +619,6 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
             Log.error("No sensors to read" CR);
             vTaskDelay(100);
             continue;
-        }
-        if (index_n != index_n_old){
-            Log.notice("Change led" CR);
-            index_n_old = index_n;
-            bool done=false;
-            while (!done){
-                if (xSemaphoreTake(xMutexI2c, pdMS_TO_TICKS(100)) == pdTRUE){
-                    Leds.on_only(indexes[index_n]);
-                    xSemaphoreGive(xMutexI2c);
-                    done = true;
-                }
-                else vTaskDelay(10);
-            }
-            vTaskDelay(100);
         }
         xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
         lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", indexes[index_n]+1,
