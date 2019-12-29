@@ -20,6 +20,8 @@
 #include "confd.h"
 #include "lcd_buf.h"
 #include "leds.h"
+#include "sensors.h"
+#include <ESPDateTime.h>
 
 /*
     Encoder pins
@@ -58,7 +60,6 @@ enum EncActions{
 /*
     Current selected sensor number in lcd menu
 */
-#define MAX_SENSORS_AMOUNT 10
 int current_sensor_n=0;
 
 /*
@@ -71,19 +72,9 @@ McpLeds Leds(0, MAX_SENSORS_AMOUNT);
 */
 bool DO_READ_SENSORS=false;
 /*
-  Struct with sensors data
-*/
-struct SensorData {
-  uint8_t address=0;
-  float V;
-  float A;
-  float Kwh;
-  bool is_charging;
-};
-/*
   Array of all sensors data
 */
-SensorData sensors_data[MAX_SENSORS_AMOUNT];
+Sensor sensors_data[MAX_SENSORS_AMOUNT];
 /*
   Mutex to block reading when write
 */
@@ -109,6 +100,7 @@ void taskMenu( void * parameter );
 void taskSensorsRead( void * parameter );
 void taskDetectCharging( void * parameter );
 void taskChargingLeds( void * parameter );
+void taskChargingStats( void * parameter );
 
 void setup() {
     /*
@@ -192,6 +184,12 @@ void setup() {
                 NULL);
     xTaskCreate(taskChargingLeds,
                 "Enable leds when charging",
+                1000,
+                NULL,
+                1,
+                NULL);
+    xTaskCreate(taskChargingStats,
+                "Save chargigs to struct",
                 1000,
                 NULL,
                 1,
@@ -398,6 +396,35 @@ void taskChargingLeds( void * parameter ) {
     }
 }
 
+void taskChargingStats( void * parameter ) {
+    OneCharge _chargings[MAX_SENSORS_AMOUNT];
+    while(1){
+        for (int id=0; id<MAX_SENSORS_AMOUNT; id++){
+            if(sensors_data[id].is_charging){
+                // Search for started chargings
+                if(_chargings[id].start > 0) continue;
+                else {
+                    _chargings[id].start = DateTime.now();
+                    _chargings[id].start_kwh = sensors_data[id].Kwh;
+                }
+            } else {
+                if(_chargings[id].start > 0){
+                    _chargings[id].finish = DateTime.now();
+                    _chargings[id].finish_kwh = sensors_data[id].Kwh;
+                }
+            }
+            if (_chargings[id].start > 0 && _chargings[id].finish > 0){
+                sensors_data[id].push_one_charging(_chargings[id]);
+                _chargings[id].start =      0;
+                _chargings[id].finish =     0;
+                _chargings[id].start_kwh =  0;
+                _chargings[id].finish_kwh = 0;
+            }
+        }
+        vTaskDelay(100);
+    }
+}
+
 /** Example menu item specific enter callback function, run when the associated menu item is entered. */
 static void Level1Item1_Select(int parent_index)
 {
@@ -433,7 +460,7 @@ static void Read_Sensors_Enter(Key_Pressed_t key){
         Initialise sensors
     */
     Log.notice("Reading sensors addresses");
-    for (int i=0; i < SENSORS_AMOUNT; i++) confd.add_sensor(i, 0);
+    for (int i=0; i < MAX_SENSORS_AMOUNT; i++) confd.add_sensor(i, 0);
     bool done=false;
     while(!done){
         if (xSemaphoreTake(xMutexI2c, pdMS_TO_TICKS(100)) == pdTRUE){

@@ -13,7 +13,7 @@
 #define SENSOR_ADDR_SIZE 1               // 1 Byte
 #define SENSOR_ADDR_START (START_ADDRESS + 10)
 
-#define SENSORS_AMOUNT 10
+#define MAX_SENSORS_AMOUNT 10
 #define DUMMY_INDEX 255
 
 
@@ -29,8 +29,8 @@ public:
     void del_sensor(uint8_t index);
     uint8_t store_sensors(void);
 
-    uint8_t sensors[SENSORS_AMOUNT];
-    uint8_t sensors_indexes[SENSORS_AMOUNT];
+    uint8_t sensors[MAX_SENSORS_AMOUNT];
+    uint8_t sensors_indexes[MAX_SENSORS_AMOUNT];
     uint8_t cur_index;
 private:
     void update_indexes(void);
