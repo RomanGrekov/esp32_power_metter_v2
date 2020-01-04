@@ -30,4 +30,7 @@ private:
   uint8_t chargings_n=0;
 
 };
+
+uint8_t get_sensors_indexes(uint8_t *all_sensors, uint8_t *indexes, uint8_t amount);
+
 #endif

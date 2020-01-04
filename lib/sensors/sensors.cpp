@@ -18,3 +18,18 @@ uint8_t Sensor::push_one_charging(OneCharge charge){
 
     return chargings_n;
 };
+
+uint8_t get_sensors_indexes(uint8_t *all_sensors, uint8_t *indexes, uint8_t amount){
+    uint8_t addr=0;
+    uint8_t cur_index=0;
+
+    // Search non zero address
+    for(int i=0; i<amount; i++){
+        addr = all_sensors[i];
+        if (addr != 0){
+            indexes[cur_index] = i;
+            cur_index++;
+        }
+    }
+    return cur_index;
+}
