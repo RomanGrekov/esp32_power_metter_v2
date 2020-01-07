@@ -239,7 +239,6 @@ void taskControlLed( void * parameter ){
 
 void taskEncoderRead( void * parameter ) {
     EncActions enc_actions;
-
     while(1){
         if (enc.isChanged()){
             if (enc.getDirection() == cw){
@@ -257,9 +256,9 @@ void taskEncoderRead( void * parameter ) {
 }
 
 void taskEncoderBtnRead( void * parameter ) {
+    EncActions enc_actions;
     bool btn_was_pressed=false;
     bool btn_was_long_pressed=false;
-    EncActions enc_actions;
     uint16_t start_millis;
     uint16_t _millis;
 
@@ -319,7 +318,14 @@ void taskMenu( void * parameter ) {
     }
 }
 
+void vCallbackLcdBlink( xTimerHandle xTimer ){
+    lcd_buffer.DoBlink();
+}
+
 void taskLcd( void * parameter ) {
+    bool is_blinking_old=false;
+    xTimerHandle blink_timer;
+    const uint32_t timer_id=30;
     /*
         Setup LCD
         MUST to be called here. Otherwise LCD gluchit
@@ -333,10 +339,26 @@ void taskLcd( void * parameter ) {
     while(1){
         if (lcd_buffer.is_changed()){
             if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-                lcd_buffer.show();
+                lcd_buffer.Show();
                 xSemaphoreGive(xMutexI2c);
             }
         }
+        if (is_blinking_old != lcd_buffer.get_cursor_blink()){
+            is_blinking_old = lcd_buffer.get_cursor_blink();
+            if (is_blinking_old){
+                Log.notice("Turn on timer" CR);
+                blink_timer = xTimerCreate("Lcd symb blink", pdMS_TO_TICKS(1000),
+                                           pdTRUE, (void *)timer_id, &vCallbackLcdBlink);
+                if (blink_timer == NULL) Log.error("Failed to create timer for lcd blink: %d" CR, timer_id);
+                xTimerStart(blink_timer, 0);
+
+            } else {
+                Log.notice("Turn off timer" CR);
+                BaseType_t res = xTimerStop(blink_timer, pdMS_TO_TICKS(100));
+                if (res != pdPASS) Log.error("Failed to stop timer for lcd blink: %d" CR, timer_id);
+            }
+        }
+
         vTaskDelay(100);
     }
 }
@@ -508,7 +530,7 @@ static void Read_Sensors_Enter(Key_Pressed_t key){
     */
     Log.notice("Reading sensors addresses" CR);
     if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        uint8_t res = confd.read_sensors(sensors, MAX_SENSORS_AMOUNT-1);
+        uint8_t res = confd.read_sensors(sensors);
         if (res != 0) Log.error("Failed to read sensor addresses" CR);
         xSemaphoreGive(xMutexI2c);
     }
@@ -576,7 +598,7 @@ static void sensor_add(Key_Pressed_t key){
             bool done=false;
             while (!done){
                 if (xSemaphoreTake(xMutexI2c, pdMS_TO_TICKS(100)) == pdTRUE){
-                    res_int = confd.store_sensors(sensors, MAX_SENSORS_AMOUNT);
+                    res_int = confd.store_sensors(sensors);
                     xSemaphoreGive(xMutexI2c);
                     done = true;
                 }
@@ -627,7 +649,7 @@ static void sensor_del(Key_Pressed_t key){
                 case encActionBtnPressed:
                     if (shure){
                         sensors[current_sensor_n] = 0;
-                        confd.store_sensors(sensors, MAX_SENSORS_AMOUNT);
+                        confd.store_sensors(sensors);
                         lcd_buffer.print(0, "Removed sensor\n- %d", current_sensor_n);
                         if (xSemaphoreGive(SensorsChangedSemaphore) != pdTRUE) Log.error("Failed to give sensors semaphore" CR);
                         vTaskDelay(2000);
@@ -707,4 +729,59 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
 }
 
 static void sensor_enter(Key_Pressed_t key){
+}
+
+static void Wifi_Name_Menu_Select(int parent_index){
+    uint8_t name[WIFI_NAME_ADDR_SIZE];
+    if(confd.read_wifi_name(name) != 0){
+        Log.error("Failed to read wifi name" CR);
+        lcd_buffer.print(1, "N/A");
+    }
+    else {
+        lcd_buffer.printarray(1, name, WIFI_NAME_ADDR_SIZE);
+    }
+}
+
+static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
+    EncActions enc_action;
+    uint8_t name[WIFI_NAME_ADDR_SIZE];
+    int pos=0;
+    int symb=0;
+    int symb_old=0;
+    bool selected=false;
+
+    lcd_buffer.cursor_pos(pos, 1);
+    lcd_buffer.set_cursor_blink(true);
+    while(1){
+        if (uxQueueMessagesWaiting(encActionsQueue) > 0){
+            xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
+            switch(enc_action){
+                case encActionCwMove:
+                    if (selected){
+                        if (pos < WIFI_NAME_ADDR_SIZE-1) pos++;
+                    } else {
+                        if (symb < sizeof(alphabet)) symb++;
+                    }
+                break;
+                case encActionCcwMove:
+                    if (selected){
+                        if (pos > 0) pos--;
+                    } else {
+                        if (symb > 0) symb--;
+                    }
+                break;
+                case encActionBtnPressed:
+                    selected = !selected;
+                break;
+            }
+            if (symb != symb_old){
+                symb_old = symb;
+                name[pos] = alphabet[symb];
+                lcd_buffer.printsymb(pos, 1, alphabet[symb]);
+            }
+            lcd_buffer.cursor_pos(pos, 1);
+        }
+        vTaskDelay(100);
+
+    }
 }

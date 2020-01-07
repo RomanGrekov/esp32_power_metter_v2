@@ -19,7 +19,7 @@ bool LcdBuf::is_changed(){
     return tmp;
 }
 
-void LcdBuf::show(){
+void LcdBuf::Show(){
     int row=0;
     int col=-1;
     int pos=0;
@@ -56,6 +56,14 @@ void LcdBuf::print(int row, const char *data, ...){
     va_end(args);
 }
 
+void LcdBuf::printarray(int row, uint8_t *data, int size){
+    for(int i=0; i<size; i++) *(get_buffer(row)+i) = data[i];
+}
+
+void LcdBuf::printsymb(int col, int row, uint8_t symb){
+    *(buffer+row*MAX_SCREEN_C+col) = symb;
+}
+
 char *LcdBuf::get_buffer(int row){
     return buffer+row*MAX_SCREEN_C;
 }
@@ -64,4 +72,24 @@ void LcdBuf::clear(){
     for (int i=0; i<MAX_SCREEN_R; i++){
         buffer[i*MAX_SCREEN_C] = '\0';
     }
+}
+
+void LcdBuf::set_cursor_blink(bool state){
+    cursor.is_blinking = state;
+}
+
+bool LcdBuf::get_cursor_blink(void){
+    return cursor.is_blinking;
+}
+
+void LcdBuf::cursor_pos(int col, int row){
+    cursor.x=col;
+    cursor.y=row;
+    cursor.old_symb = *(buffer+row*MAX_SCREEN_C+col);
+}
+
+void LcdBuf::DoBlink(){
+    if (cursor._is_show_now) printsymb(cursor.x, cursor.y, cursor.old_symb);
+    else printsymb(cursor.x, cursor.y, ' ');
+    cursor._is_show_now = !cursor._is_show_now;
 }

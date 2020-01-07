@@ -18,6 +18,11 @@ static void sensor_del(Key_Pressed_t key);
 static void sensor_show(Key_Pressed_t key);
 static void sensor_add_select(int parent_index);
 static void showAllSensorsRuntime(Key_Pressed_t key);
+
+static void Wifi_Name_Menu_Enter(Key_Pressed_t key);
+static void Wifi_Name_Menu_Select(int parent_index);
+static void Wifi_Pw_Menu_Enter(Key_Pressed_t key);
+static void Wifi_Pw_Menu_Select(int parent_index);
 /*
     LCD print callback
 */
@@ -36,12 +41,16 @@ MENU_ITEM(Menu_2, Menu_3, Menu_1, NULL_MENU, Menu_1_1 , Level1Item1_Select, Leve
 MENU_ITEM(Menu_3, Menu_1, Menu_2, NULL_MENU, NULL_MENU, NULL              , NULL             , "Menu 3", 0);
 
 MENU_ITEM(Menu_1_1, Menu_1_2, UpperMenu1, NULL_MENU, Menu_2_1, NULL, NULL, "Sensors", 0);
-MENU_ITEM(Menu_1_2, UpperMenu1, Menu_1_1, NULL_MENU, NULL_MENU, NULL, NULL, "WiFi", 0);
+MENU_ITEM(Menu_1_2, UpperMenu1, Menu_1_1, NULL_MENU, Menu_1_2_1, NULL, NULL, "WiFi", 0);
 MENU_ITEM(UpperMenu1, Menu_1_1, Menu_1_2, Menu_1, NULL_MENU, select_uppermenu, enter_uppermenu, "Exit?", 0);
 
 MENU_ITEM(Menu_2_1, Menu_2_2, UpperMenu2, NULL_MENU, Sensor_1, NULL, Read_Sensors_Enter, "Show existing", 0);
 MENU_ITEM(Menu_2_2, UpperMenu2, Menu_2_2, NULL_MENU, NULL_MENU, NULL, NULL, "Add sensor", 0);
 MENU_ITEM(UpperMenu2, Menu_2_1, Menu_2_2, Menu_1_1, NULL_MENU, select_uppermenu, enter_uppermenu, "Exit?", 0);
+
+MENU_ITEM(Menu_1_2_1, Menu_1_2_2, UpperMenu1_2, NULL_MENU, NULL_MENU, Wifi_Name_Menu_Select, Wifi_Name_Menu_Enter, "WiFi name", 0);
+MENU_ITEM(Menu_1_2_2, UpperMenu1_2, Menu_1_2_1, NULL_MENU, NULL_MENU, NULL, NULL, "WiFi password", 0);
+MENU_ITEM(UpperMenu1_2, Menu_1_2_1, Menu_1_2_2, Menu_2, NULL_MENU, select_uppermenu, enter_uppermenu, "Exit?", 0);
 
 MENU_ITEM(Sensor_1, Sensor_2,    UpperMenu3, NULL_MENU, Add_sensor, sensor_select, sensor_enter, "Sensor 1", 0);
 MENU_ITEM(Sensor_2, Sensor_3,    Sensor_1,   NULL_MENU, Add_sensor, sensor_select, sensor_enter, "Sensor 2", 1);
