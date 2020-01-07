@@ -347,7 +347,7 @@ void taskLcd( void * parameter ) {
             is_blinking_old = lcd_buffer.get_cursor_blink();
             if (is_blinking_old){
                 Log.notice("Turn on timer" CR);
-                blink_timer = xTimerCreate("Lcd symb blink", pdMS_TO_TICKS(1000),
+                blink_timer = xTimerCreate("Lcd symb blink", pdMS_TO_TICKS(500),
                                            pdTRUE, (void *)timer_id, &vCallbackLcdBlink);
                 if (blink_timer == NULL) Log.error("Failed to create timer for lcd blink: %d" CR, timer_id);
                 xTimerStart(blink_timer, 0);
@@ -758,14 +758,20 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
             switch(enc_action){
                 case encActionCwMove:
                     if (selected){
-                        if (pos < WIFI_NAME_ADDR_SIZE-1) pos++;
+                        if (pos < WIFI_NAME_ADDR_SIZE-1){
+                            lcd_buffer.printsymb(pos, 1, lcd_buffer.get_old_symb());
+                            pos++;
+                        }
                     } else {
                         if (symb < sizeof(alphabet)) symb++;
                     }
                 break;
                 case encActionCcwMove:
                     if (selected){
-                        if (pos > 0) pos--;
+                        if (pos > 0) {
+                            lcd_buffer.printsymb(pos, 1, lcd_buffer.get_old_symb());
+                            pos--;
+                        }
                     } else {
                         if (symb > 0) symb--;
                     }

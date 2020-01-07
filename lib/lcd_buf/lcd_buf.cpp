@@ -93,3 +93,7 @@ void LcdBuf::DoBlink(){
     else printsymb(cursor.x, cursor.y, ' ');
     cursor._is_show_now = !cursor._is_show_now;
 }
+
+char LcdBuf::get_old_symb(){
+    return cursor.old_symb;
+}

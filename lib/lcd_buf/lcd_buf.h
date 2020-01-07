@@ -30,6 +30,7 @@ public:
     void set_cursor_blink(bool state);
     bool get_cursor_blink();
     void cursor_pos(int col, int row);
+    char get_old_symb();
     void DoBlink();
 
 private:
