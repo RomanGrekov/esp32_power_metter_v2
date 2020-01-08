@@ -157,6 +157,8 @@ void setup() {
     vSemaphoreCreateBinary(SensorsChangedSemaphore);
     xSemaphoreGive(SensorsChangedSemaphore);
 
+pinMode(ENC_BTN_PIN, INPUT_PULLUP);
+
     /*
         Declare RTOS tasks
     */
@@ -318,9 +320,9 @@ void taskMenu( void * parameter ) {
     }
 }
 
-void vCallbackLcdBlink( xTimerHandle xTimer ){
-    lcd_buffer.DoBlink();
-}
+//void vCallbackLcdBlink( xTimerHandle xTimer ){
+//    lcd_buffer.DoBlink();
+//}
 
 void taskLcd( void * parameter ) {
     bool is_blinking_old=false;
@@ -337,27 +339,25 @@ void taskLcd( void * parameter ) {
     }
 
     while(1){
-        if (lcd_buffer.is_changed()){
-            if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-                lcd_buffer.Show();
-                xSemaphoreGive(xMutexI2c);
-            }
+        if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+            lcd_buffer.Show();
+            xSemaphoreGive(xMutexI2c);
         }
-        if (is_blinking_old != lcd_buffer.get_cursor_blink()){
-            is_blinking_old = lcd_buffer.get_cursor_blink();
-            if (is_blinking_old){
-                Log.notice("Turn on timer" CR);
-                blink_timer = xTimerCreate("Lcd symb blink", pdMS_TO_TICKS(500),
-                                           pdTRUE, (void *)timer_id, &vCallbackLcdBlink);
-                if (blink_timer == NULL) Log.error("Failed to create timer for lcd blink: %d" CR, timer_id);
-                xTimerStart(blink_timer, 0);
-
-            } else {
-                Log.notice("Turn off timer" CR);
-                BaseType_t res = xTimerStop(blink_timer, pdMS_TO_TICKS(100));
-                if (res != pdPASS) Log.error("Failed to stop timer for lcd blink: %d" CR, timer_id);
-            }
-        }
+        //if (is_blinking_old != lcd_buffer.get_cursor_blink()){
+        //    is_blinking_old = lcd_buffer.get_cursor_blink();
+        //    if (is_blinking_old){
+        //        Log.notice("Turn on timer" CR);
+        //        blink_timer = xTimerCreate("Lcd symb blink", pdMS_TO_TICKS(500),
+        //                                   pdTRUE, (void *)timer_id, &vCallbackLcdBlink);
+        //        if (blink_timer == NULL) Log.error("Failed to create timer for lcd blink: %d" CR, timer_id);
+        //        xTimerStart(blink_timer, 0);
+//
+        //    } else {
+        //        Log.notice("Turn off timer" CR);
+        //        BaseType_t res = xTimerStop(blink_timer, pdMS_TO_TICKS(100));
+        //        if (res != pdPASS) Log.error("Failed to stop timer for lcd blink: %d" CR, timer_id);
+        //    }
+        //}
 
         vTaskDelay(100);
     }
@@ -746,46 +746,63 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
     EncActions enc_action;
     uint8_t name[WIFI_NAME_ADDR_SIZE];
     int pos=0;
+    int pos_old=0;
     int symb=0;
     int symb_old=0;
-    bool selected=false;
 
-    lcd_buffer.cursor_pos(pos, 1);
-    lcd_buffer.set_cursor_blink(true);
+    enum Modes {
+        edit_mode=0,
+        moving_mode
+    };
+    Modes mode = edit_mode;
+    Modes mode_old = mode;
+
+    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        lcd_buffer.cursor_pos(pos, 1);
+        lcd_buffer.blink_cursor_on_off(true);
+        lcd_buffer.underscore_cursor_on_off(true);
+        xSemaphoreGive(xMutexI2c);
+    }
     while(1){
         if (uxQueueMessagesWaiting(encActionsQueue) > 0){
             xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
             switch(enc_action){
                 case encActionCwMove:
-                    if (selected){
-                        if (pos < WIFI_NAME_ADDR_SIZE-1){
-                            lcd_buffer.printsymb(pos, 1, lcd_buffer.get_old_symb());
-                            pos++;
-                        }
-                    } else {
-                        if (symb < sizeof(alphabet)) symb++;
-                    }
+                    if (mode == moving_mode) if (pos < WIFI_NAME_ADDR_SIZE-1) pos++;
+                    if (mode == edit_mode) if (symb < sizeof(alphabet)) symb++;
                 break;
                 case encActionCcwMove:
-                    if (selected){
-                        if (pos > 0) {
-                            lcd_buffer.printsymb(pos, 1, lcd_buffer.get_old_symb());
-                            pos--;
-                        }
-                    } else {
-                        if (symb > 0) symb--;
-                    }
+                    if (mode == moving_mode) if (pos > 0) pos--;
+                    if (mode == edit_mode) if (symb > 0) symb--;
                 break;
                 case encActionBtnPressed:
-                    selected = !selected;
+                    if (mode == edit_mode){
+                        mode = moving_mode;
+                        if (pos < WIFI_NAME_ADDR_SIZE-1) pos++;
+                    }
+                    else mode = edit_mode;
                 break;
             }
-            if (symb != symb_old){
-                symb_old = symb;
-                name[pos] = alphabet[symb];
-                lcd_buffer.printsymb(pos, 1, alphabet[symb]);
+        }
+        if (symb != symb_old || pos != pos_old || mode != mode_old){
+            if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+                if (symb != symb_old){
+                    symb_old = symb;
+                    name[pos] = alphabet[symb];
+                    lcd_buffer.printsymb(pos, 1, alphabet[symb]);
+                }
+                if (pos != pos_old){
+                    pos_old = pos;
+                    lcd_buffer.cursor_pos(pos, 1);
+                }
+                if (mode != mode_old){
+                    mode_old = mode;
+                    if (mode == edit_mode) lcd_buffer.blink_cursor_on_off(true);
+                    if (mode == moving_mode) lcd_buffer.blink_cursor_on_off(false);
+                }
+                xSemaphoreGive(xMutexI2c);
             }
-            lcd_buffer.cursor_pos(pos, 1);
+
         }
         vTaskDelay(100);
 

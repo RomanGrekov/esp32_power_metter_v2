@@ -9,11 +9,12 @@
 #define MAX_SCREEN_C 16
 
 struct Cursor {
-    int x;
-    int y;
+    int x=0;
+    int y=0;
+    int x_old=0;
+    int y_old=0;
     bool is_blinking=false;
-    bool _is_show_now=false;
-    char old_symb;
+    bool is_underscore=false;
 };
 
 class LcdBuf
@@ -27,11 +28,9 @@ public:
     void printsymb(int row, int col, uint8_t symb);
     void clear();
 
-    void set_cursor_blink(bool state);
-    bool get_cursor_blink();
+    void blink_cursor_on_off(bool on);
+    void underscore_cursor_on_off(bool on);
     void cursor_pos(int col, int row);
-    char get_old_symb();
-    void DoBlink();
 
 private:
     LiquidCrystal_I2C& _lcd;

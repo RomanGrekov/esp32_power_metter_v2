@@ -23,30 +23,43 @@ void LcdBuf::Show(){
     int row=0;
     int col=-1;
     int pos=0;
+    bool screen_was_updated = false;
     //_lcd.clear();
-    while(pos < MAX_SCREEN_R * MAX_SCREEN_C){
-        if(col >= (MAX_SCREEN_C-1)){
-            row++;
-            col=0;
-        }
-        else col++;
-        //pos = col + row*MAX_SCREEN_C;
-        if ((col + row*MAX_SCREEN_C) >= MAX_SCREEN_R * MAX_SCREEN_C) break;
-        if (buffer[pos] == '\0' || buffer[pos] == '\n'){
-            while(col < MAX_SCREEN_C){
-                _lcd.write(' ');
-                col++;
+    if (is_changed()){
+        while(pos < MAX_SCREEN_R * MAX_SCREEN_C){
+            if(col >= (MAX_SCREEN_C-1)){
+                row++;
+                col=0;
             }
-            col = MAX_SCREEN_C;
-        }
-        else {
+            else col++;
+            //pos = col + row*MAX_SCREEN_C;
             _lcd.setCursor(col, row);
-            _lcd.write(buffer[pos]);
+            if ((col + row*MAX_SCREEN_C) >= MAX_SCREEN_R * MAX_SCREEN_C) break;
+            if (buffer[pos] == '\0' || buffer[pos] == '\n'){
+                while(col < MAX_SCREEN_C){
+                    _lcd.write(' ');
+                    col++;
+                }
+                col = MAX_SCREEN_C;
+            }
+            else {
+                _lcd.write(buffer[pos]);
+            }
+            if (buffer[pos] == '\0') pos = col + row*MAX_SCREEN_C;
+            else pos++;
         }
-        if (buffer[pos] == '\0') pos = col + row*MAX_SCREEN_C;
-        else pos++;
+        _lcd.display();
+        screen_was_updated = true;
     }
-    _lcd.display();
+    if (cursor.is_blinking || cursor.is_underscore){
+        if (cursor.x != cursor.x_old || cursor.y != cursor.y_old || screen_was_updated){
+            _lcd.setCursor(cursor.x, cursor.y);
+        }
+        if (cursor.x != cursor.x_old || cursor.y != cursor.y_old){
+            cursor.x_old = cursor.x;
+            cursor.y_old = cursor.y;
+        }
+    }
 }
 
 void LcdBuf::print(int row, const char *data, ...){
@@ -74,26 +87,19 @@ void LcdBuf::clear(){
     }
 }
 
-void LcdBuf::set_cursor_blink(bool state){
-    cursor.is_blinking = state;
+void LcdBuf::blink_cursor_on_off(bool on){
+    cursor.is_blinking = on;
+    if (on) _lcd.blink();
+    else _lcd.noBlink();
 }
 
-bool LcdBuf::get_cursor_blink(void){
-    return cursor.is_blinking;
+void LcdBuf::underscore_cursor_on_off(bool on){
+    cursor.is_underscore = on;
+    if (on) _lcd.cursor();
+    else _lcd.noCursor();
 }
 
 void LcdBuf::cursor_pos(int col, int row){
     cursor.x=col;
     cursor.y=row;
-    cursor.old_symb = *(buffer+row*MAX_SCREEN_C+col);
-}
-
-void LcdBuf::DoBlink(){
-    if (cursor._is_show_now) printsymb(cursor.x, cursor.y, cursor.old_symb);
-    else printsymb(cursor.x, cursor.y, ' ');
-    cursor._is_show_now = !cursor._is_show_now;
-}
-
-char LcdBuf::get_old_symb(){
-    return cursor.old_symb;
 }
