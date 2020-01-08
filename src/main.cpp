@@ -114,6 +114,7 @@ void taskSensorsRead( void * parameter );
 void taskDetectCharging( void * parameter );
 void taskChargingLeds( void * parameter );
 void taskChargingStats( void * parameter );
+void edit_menu(uint8_t *data, int len, bool do_reset_data);
 
 void setup() {
     /*
@@ -157,7 +158,6 @@ void setup() {
     vSemaphoreCreateBinary(SensorsChangedSemaphore);
     xSemaphoreGive(SensorsChangedSemaphore);
 
-pinMode(ENC_BTN_PIN, INPUT_PULLUP);
 
     /*
         Declare RTOS tasks
@@ -733,7 +733,12 @@ static void sensor_enter(Key_Pressed_t key){
 
 static void Wifi_Name_Menu_Select(int parent_index){
     uint8_t name[WIFI_NAME_ADDR_SIZE];
-    if(confd.read_wifi_name(name) != 0){
+    uint8_t res;
+    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        res = confd.read_wifi_name(name);
+        xSemaphoreGive(xMutexI2c);
+    }
+    if(res != 0){
         Log.error("Failed to read wifi name" CR);
         lcd_buffer.print(1, "N/A");
     }
@@ -743,12 +748,81 @@ static void Wifi_Name_Menu_Select(int parent_index){
 }
 
 static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
-    EncActions enc_action;
     uint8_t name[WIFI_NAME_ADDR_SIZE];
+    uint8_t res=1;
+    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        res = confd.read_wifi_name(name);
+        xSemaphoreGive(xMutexI2c);
+    }
+    if(res != 0){
+        Log.error("Failed to read wifi name" CR);
+        edit_menu(name, WIFI_NAME_ADDR_SIZE, true);
+    }
+    else {
+        edit_menu(name, WIFI_NAME_ADDR_SIZE, false);
+    }
+    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        res = confd.store_wifi_name(name);
+        xSemaphoreGive(xMutexI2c);
+    }
+    if (res != 0){
+        lcd_buffer.print(0, "Failed!!!");
+        Log.error("Failed to save wifi name" CR);
+        vTaskDelay(2000);
+    }
+    Menu_Navigate(&Menu_1_2_1);
+}
+
+static void Wifi_Pw_Menu_Select(int parent_index){
+    uint8_t pw[WIFI_PW_ADDR_SIZE];
+    uint8_t res;
+    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        res = confd.read_wifi_pw(pw);
+        xSemaphoreGive(xMutexI2c);
+    }
+    if(res != 0){
+        Log.error("Failed to read wifi pw" CR);
+        lcd_buffer.print(1, "N/A");
+    }
+    else {
+        lcd_buffer.printarray(1, pw, WIFI_NAME_ADDR_SIZE);
+    }
+}
+
+static void Wifi_Pw_Menu_Enter(Key_Pressed_t key){
+    uint8_t pw[WIFI_PW_ADDR_SIZE];
+    uint8_t res=1;
+    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        res = confd.read_wifi_pw(pw);
+        xSemaphoreGive(xMutexI2c);
+    }
+    if(res != 0){
+        Log.error("Failed to read wifi pw" CR);
+        edit_menu(pw, WIFI_PW_ADDR_SIZE, true);
+    }
+    else {
+        edit_menu(pw, WIFI_PW_ADDR_SIZE, false);
+    }
+    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        res = confd.store_wifi_pw(pw);
+        xSemaphoreGive(xMutexI2c);
+    }
+    if (res != 0){
+        lcd_buffer.print(0, "Failed!!!");
+        Log.error("Failed to save wifi pw" CR);
+        vTaskDelay(2000);
+    }
+    Menu_Navigate(&Menu_1_2_2);
+}
+
+void edit_menu(uint8_t *data, int len, bool do_reset_data){
+    EncActions enc_action;
     int pos=0;
     int pos_old=0;
     int symb=0;
     int symb_old=0;
+
+    if (do_reset_data) for(int i=0; i<len; i++)data[i]=' ';
 
     enum Modes {
         edit_mode=0,
@@ -757,6 +831,7 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
     Modes mode = edit_mode;
     Modes mode_old = mode;
 
+    lcd_buffer.printarray(1, data, len);
     if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
         lcd_buffer.cursor_pos(pos, 1);
         lcd_buffer.blink_cursor_on_off(true);
@@ -768,7 +843,7 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
             xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
             switch(enc_action){
                 case encActionCwMove:
-                    if (mode == moving_mode) if (pos < WIFI_NAME_ADDR_SIZE-1) pos++;
+                    if (mode == moving_mode) if (pos < len-1) pos++;
                     if (mode == edit_mode) if (symb < sizeof(alphabet)) symb++;
                 break;
                 case encActionCcwMove:
@@ -778,9 +853,12 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
                 case encActionBtnPressed:
                     if (mode == edit_mode){
                         mode = moving_mode;
-                        if (pos < WIFI_NAME_ADDR_SIZE-1) pos++;
+                        if (pos < len-1) pos++;
                     }
                     else mode = edit_mode;
+                break;
+                case encActionBtnLongPressed:
+                    return;
                 break;
             }
         }
@@ -788,7 +866,7 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
             if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
                 if (symb != symb_old){
                     symb_old = symb;
-                    name[pos] = alphabet[symb];
+                    data[pos] = alphabet[symb];
                     lcd_buffer.printsymb(pos, 1, alphabet[symb]);
                 }
                 if (pos != pos_old){
@@ -802,9 +880,7 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
                 }
                 xSemaphoreGive(xMutexI2c);
             }
-
         }
-        vTaskDelay(100);
-
+        vTaskDelay(10);
     }
 }
