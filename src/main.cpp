@@ -80,7 +80,8 @@ McpLeds Leds(0, MAX_SENSORS_AMOUNT);
 /*
     Alphabet for Wifi
 */
-char alphabet[] = "._-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const char standard_alphabet[] = " ._-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+#define standard_alphabet_size sizeof(standard_alphabet)-1 // Last symbol is always \0
 
 /*
   Mutex to block reading when write
@@ -114,7 +115,7 @@ void taskSensorsRead( void * parameter );
 void taskDetectCharging( void * parameter );
 void taskChargingLeds( void * parameter );
 void taskChargingStats( void * parameter );
-void edit_menu(uint8_t *data, int len, bool do_reset_data);
+void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, bool do_reset_data);
 
 void setup() {
     /*
@@ -743,7 +744,7 @@ static void Wifi_Name_Menu_Select(int parent_index){
         lcd_buffer.print(1, "N/A");
     }
     else {
-        lcd_buffer.print(1, "%s\0\n", name);
+        lcd_buffer.printarray(1, name, WIFI_NAME_ADDR_SIZE);
     }
 }
 
@@ -756,10 +757,10 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
     }
     if(res != 0){
         Log.error("Failed to read wifi name" CR);
-        edit_menu(name, WIFI_NAME_ADDR_SIZE, true);
+        edit_menu(name, WIFI_NAME_ADDR_SIZE, standard_alphabet, standard_alphabet_size, true);
     }
     else {
-        edit_menu(name, WIFI_NAME_ADDR_SIZE, false);
+        edit_menu(name, WIFI_NAME_ADDR_SIZE, standard_alphabet, standard_alphabet_size, false);
     }
     if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
         res = confd.store_wifi_name(name);
@@ -770,7 +771,7 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
         Log.error("Failed to save wifi name" CR);
         vTaskDelay(2000);
     }
-    Menu_Navigate(&Menu_1_2_1);
+    Menu_Navigate(&Menu_1_2);
 }
 
 static void Wifi_Pw_Menu_Select(int parent_index){
@@ -785,7 +786,7 @@ static void Wifi_Pw_Menu_Select(int parent_index){
         lcd_buffer.print(1, "N/A");
     }
     else {
-        lcd_buffer.print(1, "%s", pw);
+        lcd_buffer.printarray(1, pw, WIFI_PW_ADDR_SIZE);
     }
 }
 
@@ -798,10 +799,10 @@ static void Wifi_Pw_Menu_Enter(Key_Pressed_t key){
     }
     if(res != 0){
         Log.error("Failed to read wifi pw" CR);
-        edit_menu(pw, WIFI_PW_ADDR_SIZE, true);
+        edit_menu(pw, WIFI_PW_ADDR_SIZE, standard_alphabet, standard_alphabet_size, true);
     }
     else {
-        edit_menu(pw, WIFI_PW_ADDR_SIZE, false);
+        edit_menu(pw, WIFI_PW_ADDR_SIZE, standard_alphabet, standard_alphabet_size, false);
     }
     if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
         res = confd.store_wifi_pw(pw);
@@ -812,10 +813,10 @@ static void Wifi_Pw_Menu_Enter(Key_Pressed_t key){
         Log.error("Failed to save wifi pw" CR);
         vTaskDelay(2000);
     }
-    Menu_Navigate(&Menu_1_2_2);
+    Menu_Navigate(&Menu_1_2);
 }
 
-void edit_menu(uint8_t *data, int len, bool do_reset_data){
+void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, bool do_reset_data){
     EncActions enc_action;
     int pos=0;
     int pos_old=0;
@@ -844,7 +845,7 @@ void edit_menu(uint8_t *data, int len, bool do_reset_data){
             switch(enc_action){
                 case encActionCwMove:
                     if (mode == moving_mode) if (pos < len-1) pos++;
-                    if (mode == edit_mode) if (symb < sizeof(alphabet)) symb++;
+                    if (mode == edit_mode) if (symb < alphabet_len-1) symb++;
                 break;
                 case encActionCcwMove:
                     if (mode == moving_mode) if (pos > 0) pos--;
@@ -855,9 +856,17 @@ void edit_menu(uint8_t *data, int len, bool do_reset_data){
                         mode = moving_mode;
                         if (pos < len-1) pos++;
                     }
-                    else mode = edit_mode;
+                    else {
+                        mode = edit_mode;
+                        symb = 0;
+                    }
                 break;
                 case encActionBtnLongPressed:
+                    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+                        lcd_buffer.blink_cursor_on_off(false);
+                        lcd_buffer.underscore_cursor_on_off(false);
+                        xSemaphoreGive(xMutexI2c);
+                    }
                     return;
                 break;
             }
