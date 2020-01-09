@@ -18,14 +18,14 @@ uint8_t Confd::read_wifi_name(uint8_t *name) {
     return _eeprom.read_bytes(WIFI_NAME_ADDR_START, name, WIFI_NAME_ADDR_SIZE);
 }
 uint8_t Confd::store_wifi_name(uint8_t *name){
-    return _eeprom.write_bytes(WIFI_NAME_ADDR_SIZE, name, WIFI_NAME_ADDR_SIZE);
+    return _eeprom.write_bytes(WIFI_NAME_ADDR_START, name, WIFI_NAME_ADDR_SIZE);
 }
 
 uint8_t Confd::read_wifi_pw(uint8_t *pw) {
     return _eeprom.read_bytes(WIFI_PW_ADDR_START, pw, WIFI_PW_ADDR_SIZE);
 }
 uint8_t Confd::store_wifi_pw(uint8_t *pw){
-    return _eeprom.write_bytes(WIFI_PW_ADDR_SIZE, pw, WIFI_PW_ADDR_SIZE);
+    return _eeprom.write_bytes(WIFI_PW_ADDR_START, pw, WIFI_PW_ADDR_SIZE);
 }
 
 

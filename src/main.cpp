@@ -743,7 +743,7 @@ static void Wifi_Name_Menu_Select(int parent_index){
         lcd_buffer.print(1, "N/A");
     }
     else {
-        lcd_buffer.printarray(1, name, WIFI_NAME_ADDR_SIZE);
+        lcd_buffer.print(1, "%s\0\n", name);
     }
 }
 
@@ -785,7 +785,7 @@ static void Wifi_Pw_Menu_Select(int parent_index){
         lcd_buffer.print(1, "N/A");
     }
     else {
-        lcd_buffer.printarray(1, pw, WIFI_NAME_ADDR_SIZE);
+        lcd_buffer.print(1, "%s", pw);
     }
 }
 
