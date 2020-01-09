@@ -816,6 +816,53 @@ static void Wifi_Pw_Menu_Enter(Key_Pressed_t key){
     Menu_Navigate(&Menu_1_2);
 }
 
+static void Wifi_Mode_Menu_Select(int parent_index){
+    WifiMode mode;
+    uint8_t res;
+    const char * mode_str[] = {"", "STA", "AT"};
+    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        res = confd.read_wifi_mode(&mode);
+        xSemaphoreGive(xMutexI2c);
+    }
+    if(res != 0){
+        Log.error("Failed to read wifi mode" CR);
+        lcd_buffer.print(1, "N/A");
+    }
+    else {
+        lcd_buffer.print(1, mode_str[mode.mode]);
+    }
+}
+
+static void Wifi_Mode_Menu_Enter(Key_Pressed_t key){
+    uint8_t res=1;
+    WifiMode mode;
+    const char * mode_str[] = {"", "STA", "AT"};
+    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        res = confd.read_wifi_mode(&mode);
+        xSemaphoreGive(xMutexI2c);
+    }
+    if(res != 0){
+        Log.error("Failed to read wifi mode" CR);
+        //edit_menu(pw, WIFI_PW_ADDR_SIZE, standard_alphabet, standard_alphabet_size, true);
+    }
+    /*
+    else {
+        edit_menu(pw, WIFI_PW_ADDR_SIZE, standard_alphabet, standard_alphabet_size, false);
+    }
+    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        res = confd.store_wifi_pw(pw);
+        xSemaphoreGive(xMutexI2c);
+    }
+    if (res != 0){
+        lcd_buffer.print(0, "Failed!!!");
+        Log.error("Failed to save wifi pw" CR);
+        vTaskDelay(2000);
+    }
+    */
+    Menu_Navigate(&Menu_1_2);
+}
+
+
 void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, bool do_reset_data){
     EncActions enc_action;
     int pos=0;

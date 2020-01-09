@@ -28,6 +28,13 @@ uint8_t Confd::store_wifi_pw(uint8_t *pw){
     return _eeprom.write_bytes(WIFI_PW_ADDR_START, pw, WIFI_PW_ADDR_SIZE);
 }
 
+uint8_t Confd::read_wifi_mode(WifiMode *mode) {
+    return _eeprom.read_bytes(WIFI_MODE_ADDR_START, mode->mode_array, WIFI_MODE_ADDR_SIZE);
+}
+uint8_t Confd::store_wifi_mode(WifiMode *mode){
+    return _eeprom.write_bytes(WIFI_MODE_ADDR_START, mode->mode_array, WIFI_MODE_ADDR_SIZE);
+}
+
 
 //uint8_t Confd::write_kwh(float kwh)
 //{
