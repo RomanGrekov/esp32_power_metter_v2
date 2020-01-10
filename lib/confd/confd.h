@@ -19,7 +19,8 @@
 #define WIFI_PW_ADDR_SIZE 16
 
 enum WifiModeEnum {
-    sta_mode = 1, // Connect to router
+    na_mode = 0,  // Not available status
+    sta_mode,     // Connect to router
     ap_mode       // Create access point
 };
 union WifiMode {

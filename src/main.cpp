@@ -116,6 +116,7 @@ void taskDetectCharging( void * parameter );
 void taskChargingLeds( void * parameter );
 void taskChargingStats( void * parameter );
 void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, bool do_reset_data);
+int radio_btn_menu(const char **variants, int len, int initial_idx, bool rotate);
 
 void setup() {
     /*
@@ -819,47 +820,72 @@ static void Wifi_Pw_Menu_Enter(Key_Pressed_t key){
 static void Wifi_Mode_Menu_Select(int parent_index){
     WifiMode mode;
     uint8_t res;
-    const char * mode_str[] = {"", "STA", "AT"};
+    const char * mode_str[] = {"N/A", "STA", "AP"};
     if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
         res = confd.read_wifi_mode(&mode);
         xSemaphoreGive(xMutexI2c);
     }
-    if(res != 0){
+    if(res != 0 || mode.mode > 2){
+        mode.mode = na_mode;
         Log.error("Failed to read wifi mode" CR);
-        lcd_buffer.print(1, "N/A");
     }
-    else {
-        lcd_buffer.print(1, mode_str[mode.mode]);
-    }
+    lcd_buffer.print(1, mode_str[mode.mode]);
 }
 
 static void Wifi_Mode_Menu_Enter(Key_Pressed_t key){
     uint8_t res=1;
     WifiMode mode;
-    const char * mode_str[] = {"", "STA", "AT"};
+    const char * mode_str[] = {"STA", "AP"};
     if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
         res = confd.read_wifi_mode(&mode);
         xSemaphoreGive(xMutexI2c);
     }
-    if(res != 0){
+    if(res != 0 || mode.mode > 2 || mode.mode < 1){
+        mode.mode = ap_mode;
         Log.error("Failed to read wifi mode" CR);
-        //edit_menu(pw, WIFI_PW_ADDR_SIZE, standard_alphabet, standard_alphabet_size, true);
     }
-    /*
-    else {
-        edit_menu(pw, WIFI_PW_ADDR_SIZE, standard_alphabet, standard_alphabet_size, false);
-    }
+    mode.mode = (WifiModeEnum)(radio_btn_menu(mode_str, 2, mode.mode-1, true)+1);
     if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        res = confd.store_wifi_pw(pw);
+        res = confd.store_wifi_mode(&mode);
         xSemaphoreGive(xMutexI2c);
     }
     if (res != 0){
         lcd_buffer.print(0, "Failed!!!");
-        Log.error("Failed to save wifi pw" CR);
+        Log.error("Failed to save wifi mode" CR);
         vTaskDelay(2000);
     }
-    */
     Menu_Navigate(&Menu_1_2);
+}
+
+int radio_btn_menu(const char **variants, int len, int initial_idx, bool rotate){
+    int cur_idx = initial_idx;
+    int cur_idx_old=len;
+    EncActions enc_action;
+    while(1){
+        if (uxQueueMessagesWaiting(encActionsQueue) > 0){
+            xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
+            switch(enc_action){
+                case encActionCwMove:
+                    if (cur_idx < len-1) cur_idx++;
+                    else if (rotate) cur_idx = 0;
+                break;
+                case encActionCcwMove:
+                    if (cur_idx > 0) cur_idx--;
+                    else if (rotate) cur_idx = len-1;
+                break;
+                case encActionBtnPressed:
+                    return cur_idx;
+                break;
+            }
+        }
+        if (cur_idx != cur_idx_old){
+            cur_idx_old = cur_idx;
+            lcd_buffer.print(0, "> %s", variants[cur_idx]);
+            if (len > 1 && cur_idx < len-1) lcd_buffer.print(1, "  %s", variants[cur_idx+1]);
+            else lcd_buffer.print(1, "\n");
+        }
+        vTaskDelay(20);
+    }
 }
 
 
