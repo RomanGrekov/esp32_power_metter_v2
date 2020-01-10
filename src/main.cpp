@@ -116,7 +116,7 @@ void taskDetectCharging( void * parameter );
 void taskChargingLeds( void * parameter );
 void taskChargingStats( void * parameter );
 void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, bool do_reset_data);
-int radio_btn_menu(const char **variants, int len, int initial_idx, bool rotate);
+int radio_btn_menu(const char **variants, int len, int initial_idx, bool rotate, int screen_size);
 
 void setup() {
     /*
@@ -636,6 +636,8 @@ static void sensor_del(Key_Pressed_t key){
     EncActions enc_action;
 
     lcd_buffer.print(0, "Are you shure?\n->No Yes");
+    //const char *yesno[] = {"Yes", "No"};
+    //mode.mode = (WifiModeEnum)(radio_btn_menu(mode_str, 2, mode.mode-1, true)+1);
     while(1){
         if (uxQueueMessagesWaiting(encActionsQueue) > 0){
             xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
@@ -820,7 +822,7 @@ static void Wifi_Pw_Menu_Enter(Key_Pressed_t key){
 static void Wifi_Mode_Menu_Select(int parent_index){
     WifiMode mode;
     uint8_t res;
-    const char * mode_str[] = {"N/A", "STA", "AP"};
+    const char * mode_str[] = {"N/A", "Station", "Access Point"};
     if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
         res = confd.read_wifi_mode(&mode);
         xSemaphoreGive(xMutexI2c);
@@ -835,7 +837,7 @@ static void Wifi_Mode_Menu_Select(int parent_index){
 static void Wifi_Mode_Menu_Enter(Key_Pressed_t key){
     uint8_t res=1;
     WifiMode mode;
-    const char * mode_str[] = {"STA", "AP"};
+    const char * mode_str[] = {"STA-station", "AP-access poin"};
     if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
         res = confd.read_wifi_mode(&mode);
         xSemaphoreGive(xMutexI2c);
@@ -844,7 +846,7 @@ static void Wifi_Mode_Menu_Enter(Key_Pressed_t key){
         mode.mode = ap_mode;
         Log.error("Failed to read wifi mode" CR);
     }
-    mode.mode = (WifiModeEnum)(radio_btn_menu(mode_str, 2, mode.mode-1, true)+1);
+    mode.mode = (WifiModeEnum)(radio_btn_menu(mode_str, 2, mode.mode-1, true, 2)+1);
     if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
         res = confd.store_wifi_mode(&mode);
         xSemaphoreGive(xMutexI2c);
@@ -857,9 +859,12 @@ static void Wifi_Mode_Menu_Enter(Key_Pressed_t key){
     Menu_Navigate(&Menu_1_2);
 }
 
-int radio_btn_menu(const char **variants, int len, int initial_idx, bool rotate){
+int radio_btn_menu(const char **variants, int len, int initial_idx, bool rotate, int screen_size){
     int cur_idx = initial_idx;
     int cur_idx_old=len;
+    int cur_line=0;
+    int start_from_idx=0;
+    int res_mod;
     EncActions enc_action;
     while(1){
         if (uxQueueMessagesWaiting(encActionsQueue) > 0){
@@ -880,9 +885,33 @@ int radio_btn_menu(const char **variants, int len, int initial_idx, bool rotate)
         }
         if (cur_idx != cur_idx_old){
             cur_idx_old = cur_idx;
-            lcd_buffer.print(0, "> %s", variants[cur_idx]);
-            if (len > 1 && cur_idx < len-1) lcd_buffer.print(1, "  %s", variants[cur_idx+1]);
-            else lcd_buffer.print(1, "\n");
+            if (screen_size == 1){
+                lcd_buffer.print(1, "> %s", variants[cur_idx]);
+            }
+            if (screen_size > 1){
+                if (cur_idx >= screen_size){
+                    res_mod = cur_idx % screen_size;
+                    if (res_mod != 0){
+                        cur_line = res_mod;
+                        start_from_idx = cur_idx - res_mod;
+                    } else {
+                        cur_line = 0;
+                        start_from_idx = cur_idx;
+                    }
+                }
+                else{
+                    cur_line = cur_idx;
+                    start_from_idx = 0;
+                }
+                Log.notice("Start from: %d" CR, start_from_idx);
+                Log.notice("Cur line: %d" CR, cur_line);
+                for (int i=0; i<screen_size; i++){
+                    if ((start_from_idx + i) < len){
+                        if(cur_line == i) lcd_buffer.print(i, "> %s", variants[start_from_idx + i]);
+                        else lcd_buffer.print(i, "  %s", variants[start_from_idx + i]);
+                    } else lcd_buffer.print(i, "\n");
+                }
+            }
         }
         vTaskDelay(20);
     }
