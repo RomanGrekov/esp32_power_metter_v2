@@ -6,6 +6,10 @@ LcdBuf::LcdBuf(LiquidCrystal_I2C &lcd)
 
 }
 
+void LcdBuf::define_mutex(SemaphoreHandle_t mutex){
+    xMutexI2c = mutex;
+}
+
 bool LcdBuf::is_changed(){
     bool tmp;
     for(int i=0; i<MAX_SCREEN_R * MAX_SCREEN_C; i++){
@@ -25,7 +29,7 @@ void LcdBuf::Show(){
     int pos=0;
     bool screen_was_updated = false;
     //_lcd.clear();
-    if (is_changed()){
+    if (is_changed() && (xMutexI2c == NULL || xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE)){
         while(pos < MAX_SCREEN_R * MAX_SCREEN_C){
             if(col >= (MAX_SCREEN_C-1)){
                 row++;
@@ -50,8 +54,9 @@ void LcdBuf::Show(){
         }
         _lcd.display();
         screen_was_updated = true;
+        if (xMutexI2c != NULL) xSemaphoreGive(xMutexI2c);
     }
-    if (cursor.is_blinking || cursor.is_underscore){
+    if ((cursor.is_blinking || cursor.is_underscore) && (xMutexI2c == NULL || xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE)){
         if (cursor.x != cursor.x_old || cursor.y != cursor.y_old || screen_was_updated){
             _lcd.setCursor(cursor.x, cursor.y);
         }
@@ -59,6 +64,7 @@ void LcdBuf::Show(){
             cursor.x_old = cursor.x;
             cursor.y_old = cursor.y;
         }
+        if (xMutexI2c != NULL) xSemaphoreGive(xMutexI2c);
     }
 }
 
@@ -89,14 +95,20 @@ void LcdBuf::clear(){
 
 void LcdBuf::blink_cursor_on_off(bool on){
     cursor.is_blinking = on;
-    if (on) _lcd.blink();
-    else _lcd.noBlink();
+    if (xMutexI2c == NULL || xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        if (on) _lcd.blink();
+        else _lcd.noBlink();
+        if (xMutexI2c != NULL) xSemaphoreGive(xMutexI2c);
+    }
 }
 
 void LcdBuf::underscore_cursor_on_off(bool on){
     cursor.is_underscore = on;
-    if (on) _lcd.cursor();
-    else _lcd.noCursor();
+    if (xMutexI2c == NULL || xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        if (on) _lcd.cursor();
+        else _lcd.noCursor();
+        if (xMutexI2c != NULL) xSemaphoreGive(xMutexI2c);
+    }
 }
 
 void LcdBuf::cursor_pos(int col, int row){

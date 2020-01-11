@@ -12,6 +12,10 @@ EepromCli::EepromCli(uint16_t address)
     _eeprom_address = address;
 }
 
+void EepromCli::define_mutex(SemaphoreHandle_t mutex){
+    xMutexI2c = mutex;
+}
+
 void EepromCli::force_begin(void){
     //_wire.begin(_sda, _scl);
     Wire.begin();
@@ -32,26 +36,31 @@ uint8_t EepromCli::read_byte(uint16_t addr, uint8_t *dest)
     uint8_t error;
     uint8_t data;
 
-    //_wire.beginTransmission(_eeprom_address);
-    Wire.beginTransmission(_eeprom_address);
-    _set_addr(addr);
-    //error = _wire.endTransmission();
-    error = Wire.endTransmission();
-    delay(10);
-    if (error != 0){
-        return error;
-    }
-    //_wire.requestFrom(_eeprom_address, 1);
-    Wire.requestFrom(_eeprom_address, 1);
-    delay(10);
-    //if (_wire.available()){
-    if (Wire.available()){
-        //data = _wire.read();
-        data = Wire.read();
-        *dest = data;
-    }
-    else{
-        return 10;
+    if (xMutexI2c == NULL || xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        //_wire.beginTransmission(_eeprom_address);
+        Wire.beginTransmission(_eeprom_address);
+        _set_addr(addr);
+        //error = _wire.endTransmission();
+        error = Wire.endTransmission();
+        delay(10);
+        if (error != 0){
+            if (xMutexI2c != NULL) xSemaphoreGive(xMutexI2c);
+            return error;
+        }
+        //_wire.requestFrom(_eeprom_address, 1);
+        Wire.requestFrom(_eeprom_address, 1);
+        delay(10);
+        //if (_wire.available()){
+        if (Wire.available()){
+            //data = _wire.read();
+            data = Wire.read();
+            *dest = data;
+        }
+        else{
+            if (xMutexI2c != NULL) xSemaphoreGive(xMutexI2c);
+            return 10;
+        }
+        if (xMutexI2c != NULL) xSemaphoreGive(xMutexI2c);
     }
     return 0;
 }
@@ -60,17 +69,21 @@ uint8_t EepromCli::write_byte(uint16_t addr, uint8_t data)
 {
     uint8_t error;
 
-    //_wire.beginTransmission(_eeprom_address);
-    Wire.beginTransmission(_eeprom_address);
-    _set_addr(addr);
-    //_wire.write(data);
-    Wire.write(data);
-    delay(10);
-    //error = _wire.endTransmission();
-    error = Wire.endTransmission();
-    delay(10);
-    if (error != 0){
-        return error;
+    if (xMutexI2c == NULL || xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
+        //_wire.beginTransmission(_eeprom_address);
+        Wire.beginTransmission(_eeprom_address);
+        _set_addr(addr);
+        //_wire.write(data);
+        Wire.write(data);
+        delay(10);
+        //error = _wire.endTransmission();
+        error = Wire.endTransmission();
+        delay(10);
+        if (error != 0){
+            if (xMutexI2c != NULL) xSemaphoreGive(xMutexI2c);
+            return error;
+        }
+        if (xMutexI2c != NULL) xSemaphoreGive(xMutexI2c);
     }
     return 0;
 }

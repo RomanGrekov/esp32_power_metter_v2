@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
 #include <stdarg.h>
+#include "FreeRTOS.h"
 
 #define MAX_SCREEN_R 2
 #define MAX_SCREEN_C 16
@@ -32,6 +33,8 @@ public:
     void underscore_cursor_on_off(bool on);
     void cursor_pos(int col, int row);
 
+    void define_mutex(SemaphoreHandle_t mutex);
+
 private:
     LiquidCrystal_I2C& _lcd;
     bool lcd_buf_changed = false;
@@ -41,6 +44,8 @@ private:
 
     char *get_buffer(int row=0);
     void copy(char *src, char *dst, int size);
+
+    SemaphoreHandle_t xMutexI2c;
 };
 
 #endif

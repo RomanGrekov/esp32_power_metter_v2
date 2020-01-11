@@ -67,8 +67,8 @@ MENU_ITEM(Sensor_9, Sensor_10,   Sensor_8,   NULL_MENU, Add_sensor, sensor_selec
 MENU_ITEM(Sensor_10, UpperMenu3, Sensor_9,   NULL_MENU, Add_sensor, sensor_select, sensor_enter, "Sensor 10", 9);
 MENU_ITEM(UpperMenu3, Sensor_1, Sensor_10, Menu_1_1, NULL_MENU, select_uppermenu, enter_uppermenu, "Exit?", 0);
 
-MENU_ITEM(Add_sensor, Del_sensor, UpperMenu4, NULL_MENU, NULL_MENU, sensor_add_select, sensor_add, "Add", 0);
-MENU_ITEM(Del_sensor, Show_sensor, Add_sensor, NULL_MENU, NULL_MENU, NULL, sensor_del, "Del", 0);
-MENU_ITEM(Show_sensor, UpperMenu4, Del_sensor, NULL_MENU, NULL_MENU, NULL, sensor_show, "Check", 0);
+MENU_ITEM(Add_sensor, Del_sensor, UpperMenu4, NULL_MENU, NULL_MENU, sensor_add_select, sensor_add, "Add sensor", 0);
+MENU_ITEM(Del_sensor, Show_sensor, Add_sensor, NULL_MENU, NULL_MENU, NULL, sensor_del, "Delete sensor", 0);
+MENU_ITEM(Show_sensor, UpperMenu4, Del_sensor, NULL_MENU, NULL_MENU, NULL, sensor_show, "Check sensor", 0);
 MENU_ITEM(UpperMenu4, Add_sensor, Show_sensor, Menu_2_1, NULL_MENU, select_uppermenu, enter_uppermenu, "Exit?", 0);
 #endif

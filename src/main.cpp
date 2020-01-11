@@ -42,13 +42,6 @@ LiquidCrystal_I2C lcd(SCREEN_ADDR, MAX_SCREEN_C, MAX_SCREEN_R);
 LcdBuf lcd_buffer(lcd);
 
 /*
-    Eeprom init
-*/
-//EepromCli eeprom_cli(21, 22, 0x50);
-EepromCli eeprom_cli(0x50);
-Confd confd(eeprom_cli);
-
-/*
    Encoder actions
 */
 enum EncActions{
@@ -96,12 +89,19 @@ QueueHandle_t encActionsQueue;
 /*
     Mutex needed to make access to I2C bus atomic
 */
-SemaphoreHandle_t xMutexI2c;
+xSemaphoreHandle xMutexI2c;
 
 /*
     Semaphore to say that sensors changed
 */
 xSemaphoreHandle SensorsChangedSemaphore;
+/*
+    Eeprom init
+*/
+//EepromCli eeprom_cli(21, 22, 0x50);
+EepromCli eeprom_cli(0x50);
+Confd confd(eeprom_cli);
+
 
 /*
     RTOS tasks prototypes
@@ -143,6 +143,9 @@ void setup() {
         Mutex needed to make access to I2C bus atomic
     */
     xMutexI2c = xSemaphoreCreateMutex();
+    eeprom_cli.define_mutex(xMutexI2c);
+    lcd_buffer.define_mutex(xMutexI2c);
+    Leds.define_mutex(xMutexI2c);
 
     /*
       Mutex to block sensor reading when write
@@ -237,7 +240,7 @@ void taskControlLed( void * parameter ){
     while(1){
         ledstatus = !ledstatus;
         digitalWrite(LED_BUILTIN, ledstatus);
-        vTaskDelay(1000/Led_f);
+        vTaskDelay(pdMS_TO_TICKS(1000/Led_f));
     }
 }
 
@@ -255,7 +258,7 @@ void taskEncoderRead( void * parameter ) {
             }
             xQueueSend(encActionsQueue, &enc_actions, portMAX_DELAY);
         }
-        vTaskDelay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -296,7 +299,7 @@ void taskEncoderBtnRead( void * parameter ) {
                 btn_was_pressed = false;
             }
         }
-        vTaskDelay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -318,7 +321,7 @@ void taskMenu( void * parameter ) {
                 break;
             }
         }
-        vTaskDelay(100);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -341,10 +344,7 @@ void taskLcd( void * parameter ) {
     }
 
     while(1){
-        if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-            lcd_buffer.Show();
-            xSemaphoreGive(xMutexI2c);
-        }
+        lcd_buffer.Show();
         //if (is_blinking_old != lcd_buffer.get_cursor_blink()){
         //    is_blinking_old = lcd_buffer.get_cursor_blink();
         //    if (is_blinking_old){
@@ -361,7 +361,7 @@ void taskLcd( void * parameter ) {
         //    }
         //}
 
-        vTaskDelay(100);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -387,7 +387,7 @@ void taskSensorsRead( void * parameter ) {
 
           if (ws_amount == 0 ){
               Log.error( "No one working sensors to show" CR);
-              vTaskDelay(1000);
+              vTaskDelay(pdMS_TO_TICKS(1000));
           }
           index_n=0;
 
@@ -440,7 +440,7 @@ void taskDetectCharging( void * parameter ) {
                 }
             }
         }
-        vTaskDelay(100);
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -448,22 +448,15 @@ void taskChargingLeds( void * parameter ) {
     /*
         Start leds
     */
-    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        Leds.init();
-        xSemaphoreGive(xMutexI2c);
-        vTaskDelay(100);
-    }
+    Leds.init();
 
     while(1){
-        if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-            for (int id=0; id<MAX_SENSORS_AMOUNT; id++){
-                if (sensors_data[id].is_charging) Leds.on(id);
-                else Leds.off(id);
-                vTaskDelay(10);
-            }
-            xSemaphoreGive(xMutexI2c);
+        for (int id=0; id<MAX_SENSORS_AMOUNT; id++){
+            if (sensors_data[id].is_charging) Leds.on(id);
+            else Leds.off(id);
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
-        vTaskDelay(100);
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -492,7 +485,7 @@ void taskChargingStats( void * parameter ) {
                 _chargings[id].finish_kwh = 0;
             }
         }
-        vTaskDelay(100);
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -531,12 +524,8 @@ static void Read_Sensors_Enter(Key_Pressed_t key){
         Initialise sensors
     */
     Log.notice("Reading sensors addresses" CR);
-    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        uint8_t res = confd.read_sensors(sensors);
-        if (res != 0) Log.error("Failed to read sensor addresses" CR);
-        xSemaphoreGive(xMutexI2c);
-    }
-    else vTaskDelay(10);
+    uint8_t res = confd.read_sensors(sensors);
+    if (res != 0) Log.error("Failed to read sensor addresses" CR);
     Log.notice("Done" CR);
 }
 
@@ -574,38 +563,30 @@ static void sensor_add(Key_Pressed_t key){
         lcd_buffer.print(1, "Try addr: %d", addr);
         pzem.sendCmd8(CMD_RIR, 0x00, 0x01, false, addr);
         if(pzem.recieve(response, 7) != 7){ // Something went wrong
-            vTaskDelay(100);
+            vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         } else {
             dev_addr = addr;
             break;
         }
-        vTaskDelay(100);
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
     if (dev_addr == 0){
         Log.error("Failed to find any device" CR);
         lcd_buffer.print(0, "Failed to find any device");
-        vTaskDelay(2000);
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
     else {
         Log.notice("Found device %d" CR, dev_addr);
         lcd_buffer.print(0, "Saving...\nOk");
-        vTaskDelay(2000);
+        vTaskDelay(pdMS_TO_TICKS(2000));
         PZEM004Tv30 pzem(&Serial2, dev_addr);
         res = pzem.setAddress(current_sensor_n+1);
         if (res){
             Log.notice("Storing sensor..." CR);
             sensors[current_sensor_n] = current_sensor_n+1;
-            bool done=false;
-            while (!done){
-                if (xSemaphoreTake(xMutexI2c, pdMS_TO_TICKS(100)) == pdTRUE){
-                    res_int = confd.store_sensors(sensors);
-                    xSemaphoreGive(xMutexI2c);
-                    done = true;
-                }
-                else vTaskDelay(10);
-            }
+            res_int = confd.store_sensors(sensors);
             if (res_int != 0){
                 Log.error("Failed to store sensors");
                 lcd_buffer.print(0, "Failed to save sensor to mem");
@@ -626,43 +607,26 @@ static void sensor_add(Key_Pressed_t key){
             xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
             if (enc_action == encActionBtnPressed) break;
         }
-        vTaskDelay(100);
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
     Menu_Navigate(&Menu_2_1);
 }
 
 static void sensor_del(Key_Pressed_t key){
-    bool shure=false;
-    EncActions enc_action;
+    int res;
 
-    lcd_buffer.print(0, "Are you shure?\n->No Yes");
-    //const char *yesno[] = {"Yes", "No"};
-    //mode.mode = (WifiModeEnum)(radio_btn_menu(mode_str, 2, mode.mode-1, true)+1);
-    while(1){
-        if (uxQueueMessagesWaiting(encActionsQueue) > 0){
-            xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
-            switch(enc_action){
-                case encActionCwMove:
-                    lcd_buffer.print(1, "No ->Yes");
-                    shure=true;
-                break;
-                case encActionCcwMove:
-                    lcd_buffer.print(1, "->No Yes");
-                    shure=false;
-                break;
-                case encActionBtnPressed:
-                    if (shure){
-                        sensors[current_sensor_n] = 0;
-                        confd.store_sensors(sensors);
-                        lcd_buffer.print(0, "Removed sensor\n- %d", current_sensor_n);
-                        if (xSemaphoreGive(SensorsChangedSemaphore) != pdTRUE) Log.error("Failed to give sensors semaphore" CR);
-                        vTaskDelay(2000);
-                    }
-                break;
-            }
-        }
-        vTaskDelay(100);
+    lcd_buffer.print(0, "Are you shure?");
+    const char *yesno[] = {"Yes", "No"};
+    Log.notice("%d" CR, sizeof(yesno));
+    res = radio_btn_menu(yesno, 2, 1, true, 1);
+    if (res == 0){
+        sensors[current_sensor_n] = 0;
+        confd.store_sensors(sensors);
+        lcd_buffer.print(0, "Removed sensor\n- %d", current_sensor_n);
+        if (xSemaphoreGive(SensorsChangedSemaphore) != pdTRUE) Log.error("Failed to give sensors semaphore" CR);
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
+    vTaskDelay(pdMS_TO_TICKS(100));
     Menu_Navigate(&Menu_2_1);
 }
 
@@ -684,7 +648,7 @@ static void sensor_show(Key_Pressed_t key){
             xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
             if (enc_action == encActionBtnPressed) break;
         }
-        vTaskDelay(100);
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
     Menu_Navigate(&Show_sensor);
 }
@@ -701,7 +665,7 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
             ws_amount = get_sensors_indexes(sensors, indexes, MAX_SENSORS_AMOUNT);
             lcd_buffer.print(0, "No one working sensors to show");
             Log.error("No sensors to read" CR);
-            vTaskDelay(100);
+            vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
         xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
@@ -726,7 +690,7 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
                 break;
             }
         }
-        vTaskDelay(100);
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
     Menu_Navigate(&Menu_2);
@@ -738,10 +702,7 @@ static void sensor_enter(Key_Pressed_t key){
 static void Wifi_Name_Menu_Select(int parent_index){
     uint8_t name[WIFI_NAME_ADDR_SIZE];
     uint8_t res;
-    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        res = confd.read_wifi_name(name);
-        xSemaphoreGive(xMutexI2c);
-    }
+    res = confd.read_wifi_name(name);
     if(res != 0){
         Log.error("Failed to read wifi name" CR);
         lcd_buffer.print(1, "N/A");
@@ -754,10 +715,7 @@ static void Wifi_Name_Menu_Select(int parent_index){
 static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
     uint8_t name[WIFI_NAME_ADDR_SIZE];
     uint8_t res=1;
-    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        res = confd.read_wifi_name(name);
-        xSemaphoreGive(xMutexI2c);
-    }
+    res = confd.read_wifi_name(name);
     if(res != 0){
         Log.error("Failed to read wifi name" CR);
         edit_menu(name, WIFI_NAME_ADDR_SIZE, standard_alphabet, standard_alphabet_size, true);
@@ -765,14 +723,11 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
     else {
         edit_menu(name, WIFI_NAME_ADDR_SIZE, standard_alphabet, standard_alphabet_size, false);
     }
-    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        res = confd.store_wifi_name(name);
-        xSemaphoreGive(xMutexI2c);
-    }
+    res = confd.store_wifi_name(name);
     if (res != 0){
         lcd_buffer.print(0, "Failed!!!");
         Log.error("Failed to save wifi name" CR);
-        vTaskDelay(2000);
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
     Menu_Navigate(&Menu_1_2);
 }
@@ -780,10 +735,7 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
 static void Wifi_Pw_Menu_Select(int parent_index){
     uint8_t pw[WIFI_PW_ADDR_SIZE];
     uint8_t res;
-    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        res = confd.read_wifi_pw(pw);
-        xSemaphoreGive(xMutexI2c);
-    }
+    res = confd.read_wifi_pw(pw);
     if(res != 0){
         Log.error("Failed to read wifi pw" CR);
         lcd_buffer.print(1, "N/A");
@@ -796,10 +748,7 @@ static void Wifi_Pw_Menu_Select(int parent_index){
 static void Wifi_Pw_Menu_Enter(Key_Pressed_t key){
     uint8_t pw[WIFI_PW_ADDR_SIZE];
     uint8_t res=1;
-    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        res = confd.read_wifi_pw(pw);
-        xSemaphoreGive(xMutexI2c);
-    }
+    res = confd.read_wifi_pw(pw);
     if(res != 0){
         Log.error("Failed to read wifi pw" CR);
         edit_menu(pw, WIFI_PW_ADDR_SIZE, standard_alphabet, standard_alphabet_size, true);
@@ -807,14 +756,11 @@ static void Wifi_Pw_Menu_Enter(Key_Pressed_t key){
     else {
         edit_menu(pw, WIFI_PW_ADDR_SIZE, standard_alphabet, standard_alphabet_size, false);
     }
-    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        res = confd.store_wifi_pw(pw);
-        xSemaphoreGive(xMutexI2c);
-    }
+    res = confd.store_wifi_pw(pw);
     if (res != 0){
         lcd_buffer.print(0, "Failed!!!");
         Log.error("Failed to save wifi pw" CR);
-        vTaskDelay(2000);
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
     Menu_Navigate(&Menu_1_2);
 }
@@ -823,10 +769,7 @@ static void Wifi_Mode_Menu_Select(int parent_index){
     WifiMode mode;
     uint8_t res;
     const char * mode_str[] = {"N/A", "Station", "Access Point"};
-    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        res = confd.read_wifi_mode(&mode);
-        xSemaphoreGive(xMutexI2c);
-    }
+    res = confd.read_wifi_mode(&mode);
     if(res != 0 || mode.mode > 2){
         mode.mode = na_mode;
         Log.error("Failed to read wifi mode" CR);
@@ -838,23 +781,17 @@ static void Wifi_Mode_Menu_Enter(Key_Pressed_t key){
     uint8_t res=1;
     WifiMode mode;
     const char * mode_str[] = {"STA-station", "AP-access poin"};
-    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        res = confd.read_wifi_mode(&mode);
-        xSemaphoreGive(xMutexI2c);
-    }
+    res = confd.read_wifi_mode(&mode);
     if(res != 0 || mode.mode > 2 || mode.mode < 1){
         mode.mode = ap_mode;
         Log.error("Failed to read wifi mode" CR);
     }
     mode.mode = (WifiModeEnum)(radio_btn_menu(mode_str, 2, mode.mode-1, true, 2)+1);
-    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        res = confd.store_wifi_mode(&mode);
-        xSemaphoreGive(xMutexI2c);
-    }
+    res = confd.store_wifi_mode(&mode);
     if (res != 0){
         lcd_buffer.print(0, "Failed!!!");
         Log.error("Failed to save wifi mode" CR);
-        vTaskDelay(2000);
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
     Menu_Navigate(&Menu_1_2);
 }
@@ -880,6 +817,9 @@ int radio_btn_menu(const char **variants, int len, int initial_idx, bool rotate,
                 break;
                 case encActionBtnPressed:
                     return cur_idx;
+                break;
+                case encActionBtnLongPressed:
+                    return initial_idx;
                 break;
             }
         }
@@ -913,12 +853,13 @@ int radio_btn_menu(const char **variants, int len, int initial_idx, bool rotate,
                 }
             }
         }
-        vTaskDelay(20);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
 
 void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, bool do_reset_data){
+    #define dummy_symbol -1
     EncActions enc_action;
     int pos=0;
     int pos_old=0;
@@ -931,16 +872,13 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
         edit_mode=0,
         moving_mode
     };
-    Modes mode = edit_mode;
+    Modes mode = moving_mode;
     Modes mode_old = mode;
 
     lcd_buffer.printarray(1, data, len);
-    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-        lcd_buffer.cursor_pos(pos, 1);
-        lcd_buffer.blink_cursor_on_off(true);
-        lcd_buffer.underscore_cursor_on_off(true);
-        xSemaphoreGive(xMutexI2c);
-    }
+    lcd_buffer.cursor_pos(pos, 1);
+    lcd_buffer.blink_cursor_on_off(true);
+    lcd_buffer.underscore_cursor_on_off(true);
     while(1){
         if (uxQueueMessagesWaiting(encActionsQueue) > 0){
             xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
@@ -961,37 +899,32 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
                     else {
                         mode = edit_mode;
                         symb = 0;
+                        symb_old = dummy_symbol;
                     }
                 break;
                 case encActionBtnLongPressed:
-                    if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-                        lcd_buffer.blink_cursor_on_off(false);
-                        lcd_buffer.underscore_cursor_on_off(false);
-                        xSemaphoreGive(xMutexI2c);
-                    }
+                    lcd_buffer.blink_cursor_on_off(false);
+                    lcd_buffer.underscore_cursor_on_off(false);
                     return;
                 break;
             }
         }
         if (symb != symb_old || pos != pos_old || mode != mode_old){
-            if (xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE){
-                if (symb != symb_old){
-                    symb_old = symb;
-                    data[pos] = alphabet[symb];
-                    lcd_buffer.printsymb(pos, 1, alphabet[symb]);
-                }
-                if (pos != pos_old){
-                    pos_old = pos;
-                    lcd_buffer.cursor_pos(pos, 1);
-                }
-                if (mode != mode_old){
-                    mode_old = mode;
-                    if (mode == edit_mode) lcd_buffer.blink_cursor_on_off(true);
-                    if (mode == moving_mode) lcd_buffer.blink_cursor_on_off(false);
-                }
-                xSemaphoreGive(xMutexI2c);
+            if (symb != symb_old){
+                symb_old = symb;
+                data[pos] = alphabet[symb];
+                lcd_buffer.printsymb(pos, 1, alphabet[symb]);
+            }
+            if (pos != pos_old){
+                pos_old = pos;
+                lcd_buffer.cursor_pos(pos, 1);
+            }
+            if (mode != mode_old){
+                mode_old = mode;
+                if (mode == edit_mode) lcd_buffer.blink_cursor_on_off(true);
+                if (mode == moving_mode) lcd_buffer.blink_cursor_on_off(false);
             }
         }
-        vTaskDelay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }

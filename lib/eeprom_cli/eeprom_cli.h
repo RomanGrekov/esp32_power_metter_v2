@@ -2,6 +2,7 @@
 #define EEPROM_CLI_H
 
 #include <Wire.h>
+#include "FreeRTOS.h"
 
 // Inherrited errors from twi lib from Wire library
 // Output   0 .. success
@@ -25,6 +26,7 @@ class EepromCli
         uint8_t write_bytes(uint16_t addr, uint8_t *source, uint16_t size);
         uint8_t write_float(uint16_t addr, float f);
         void force_begin(void);
+        void define_mutex(SemaphoreHandle_t mutex);
         //uint8_t read_key(uint8_t *key);
         //uint8_t write_key(uint8_t *key);
         //uint8_t is_key_saved(bool *result);
@@ -32,6 +34,7 @@ class EepromCli
         //uint8_t set_key_unsaved(void);
 
     private:
+        SemaphoreHandle_t xMutexI2c;
         //TwoWire _wire{1}; // 1 - bus number
         uint16_t _eeprom_address;
         //uint8_t _sda;
