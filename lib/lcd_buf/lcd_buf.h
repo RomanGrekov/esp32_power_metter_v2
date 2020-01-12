@@ -22,7 +22,6 @@ class LcdBuf
 {
 public:
     LcdBuf(LiquidCrystal_I2C &lcd);
-    bool is_changed();
     void Show();
     void print(int row, const char *data, ...);
     void printarray(int row, uint8_t *data, int size);
@@ -38,7 +37,6 @@ public:
 private:
     LiquidCrystal_I2C& _lcd;
     bool lcd_buf_changed = false;
-    char old_buffer[MAX_SCREEN_R*MAX_SCREEN_C];
     char buffer[MAX_SCREEN_R*MAX_SCREEN_C];
     Cursor cursor;
 

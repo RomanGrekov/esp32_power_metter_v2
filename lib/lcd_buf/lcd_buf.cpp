@@ -10,26 +10,13 @@ void LcdBuf::define_mutex(SemaphoreHandle_t mutex){
     xMutexI2c = mutex;
 }
 
-bool LcdBuf::is_changed(){
-    bool tmp;
-    for(int i=0; i<MAX_SCREEN_R * MAX_SCREEN_C; i++){
-        if (buffer[i] != old_buffer[i]){
-            old_buffer[i] = buffer[i];
-            lcd_buf_changed = true;
-        }
-    }
-    tmp = lcd_buf_changed;
-    lcd_buf_changed = false;
-    return tmp;
-}
-
 void LcdBuf::Show(){
     int row=0;
     int col=-1;
     int pos=0;
     bool screen_was_updated = false;
-    //_lcd.clear();
-    if (is_changed() && (xMutexI2c == NULL || xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE)){
+    if (lcd_buf_changed && (xMutexI2c == NULL || xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE)){
+        lcd_buf_changed = false;
         while(pos < MAX_SCREEN_R * MAX_SCREEN_C){
             if(col >= (MAX_SCREEN_C-1)){
                 row++;
@@ -69,6 +56,7 @@ void LcdBuf::Show(){
 }
 
 void LcdBuf::print(int row, const char *data, ...){
+    lcd_buf_changed = true;
     va_list args;
     va_start(args, data);
     vsprintf(get_buffer(row), data, args);
@@ -76,10 +64,12 @@ void LcdBuf::print(int row, const char *data, ...){
 }
 
 void LcdBuf::printarray(int row, uint8_t *data, int size){
+    lcd_buf_changed = true;
     for(int i=0; i<size; i++) *(get_buffer(row)+i) = data[i];
 }
 
 void LcdBuf::printsymb(int col, int row, uint8_t symb){
+    lcd_buf_changed = true;
     *(buffer+row*MAX_SCREEN_C+col) = symb;
 }
 
