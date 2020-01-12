@@ -25,10 +25,10 @@ void EepromCli::_set_addr(uint16_t address)
 {
     //_wire.write((uint8_t)(address >> 8));
     Wire.write((uint8_t)(address >> 8));
-    delay(10);
+    vTaskDelay(pdMS_TO_TICKS(10));
     //_wire.write((uint8_t)(address & 0b0000000011111111));
     Wire.write((uint8_t)(address & 0b0000000011111111));
-    delay(10);
+    vTaskDelay(pdMS_TO_TICKS(10));
 }
 
 uint8_t EepromCli::read_byte(uint16_t addr, uint8_t *dest)
@@ -42,14 +42,14 @@ uint8_t EepromCli::read_byte(uint16_t addr, uint8_t *dest)
         _set_addr(addr);
         //error = _wire.endTransmission();
         error = Wire.endTransmission();
-        delay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));
         if (error != 0){
             if (xMutexI2c != NULL) xSemaphoreGive(xMutexI2c);
             return error;
         }
         //_wire.requestFrom(_eeprom_address, 1);
         Wire.requestFrom(_eeprom_address, 1);
-        delay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));
         //if (_wire.available()){
         if (Wire.available()){
             //data = _wire.read();
@@ -75,10 +75,10 @@ uint8_t EepromCli::write_byte(uint16_t addr, uint8_t data)
         _set_addr(addr);
         //_wire.write(data);
         Wire.write(data);
-        delay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));
         //error = _wire.endTransmission();
         error = Wire.endTransmission();
-        delay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));
         if (error != 0){
             if (xMutexI2c != NULL) xSemaphoreGive(xMutexI2c);
             return error;
