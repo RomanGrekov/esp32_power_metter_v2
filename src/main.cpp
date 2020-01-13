@@ -797,7 +797,56 @@ static void Wifi_Mode_Menu_Enter(Key_Pressed_t key){
     Menu_Navigate(&Menu_1_2);
 }
 
-int radio_btn_menu(const char **variants, int len, int initial_idx, bool rotate, int screen_size){
+static void Wifi_State_Menu_Select(int parent_index){
+    WifiState state;
+    uint8_t res;
+    const char * states_str[] = {"Off", "On"};
+    res = confd.read_wifi_state(&state);
+    if(res != 0 || state.state < Wifi_Off || state.state > Wifi_On){
+        state.state = Wifi_Off;
+        Log.error("Failed to read wifi state" CR);
+    }
+    lcd_buffer.print(1, states_str[state.state]);
+}
+
+static void Wifi_State_Menu_Enter(Key_Pressed_t key){
+    uint8_t res=1;
+    WifiState state;
+    const char * states_str[] = {"Off", "On"};
+    res = confd.read_wifi_state(&state);
+    if(res != 0 || state.state < Wifi_Off || state.state > Wifi_On){
+        state.state = Wifi_Off;
+        Log.error("Failed to read wifi state" CR);
+    }
+    state.state = (WifiStateEnum)radio_btn_menu(states_str, 2, state.state, true, 2);
+    res = confd.store_wifi_state(&state);
+    if (res != 0){
+        lcd_buffer.print(0, "Failed!!!");
+        Log.error("Failed to save wifi state" CR);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+    Menu_Navigate(&Menu_1_2);
+}
+
+static void Wifi_Search_Menu_Enter(Key_Pressed_t key){
+    lcd_buffer.print(0, "Searching...");
+    int networks_n = WiFi.scanNetworks(false, true, false, 300);
+    lcd_buffer.print(1, "Found: %d nets", networks_n);
+    if (networks_n < 1){
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        Menu_Navigate(&Menu_1_2);
+    }
+    char ssids[networks_n][16];
+    for(int i=0; i<networks_n; i++){
+        //strcpy(ssids[i], WiFi.SSID(i).c_str());
+        sprintf(ssids[i], "%.14s", WiFi.SSID(i).c_str());
+    }
+    for(int i=0; i<networks_n; i++) Log.notice("%s" CR, ssids[i]);
+    int chosen_n = radio_btn_menu((const char**)ssids, networks_n, 0, true, 2);
+    while(1) vTaskDelay(100);
+}
+
+int radio_btn_menu(const char  **variants, int len, int initial_idx, bool rotate, int screen_size){
     int cur_idx = initial_idx;
     int cur_idx_old=len;
     int cur_line=0;

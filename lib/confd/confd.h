@@ -31,6 +31,17 @@ union WifiMode {
 #define WIFI_MODE_ADDR_START (WIFI_PW_ADDR_START + WIFI_PW_ADDR_SIZE + 1)
 #define WIFI_MODE_ADDR_SIZE 4
 
+enum WifiStateEnum {
+    Wifi_Off = 0,
+    Wifi_On
+};
+union WifiState {
+    WifiStateEnum state;
+    uint8_t state_array[4];
+};
+#define WIFI_STATE_ADDR_START (WIFI_MODE_ADDR_START + WIFI_MODE_ADDR_SIZE + 1)
+#define WIFI_STATE_ADDR_SIZE 4
+
 class Confd
 {
 public:
@@ -44,6 +55,8 @@ public:
     uint8_t store_wifi_pw(uint8_t *pw);
     uint8_t read_wifi_mode(WifiMode *mode);
     uint8_t store_wifi_mode(WifiMode *mode);
+    uint8_t read_wifi_state(WifiState *state);
+    uint8_t store_wifi_state(WifiState *state);
 private:
     EepromCli& _eeprom;
 
