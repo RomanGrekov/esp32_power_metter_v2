@@ -92,12 +92,18 @@ QueueHandle_t encActionsQueue;
 xSemaphoreHandle xMutexI2c;
 
 /*
-    Semaphore to say that sensors changed
+    Semaphore to say that wifi settings changed
 */
 xSemaphoreHandle SensorsChangedSemaphore;
 /*
     Eeprom init
 */
+
+/*
+  Mutex to block reading when write
+*/
+xSemaphoreHandle SetupWifiSemaphore;
+
 //EepromCli eeprom_cli(21, 22, 0x50);
 EepromCli eeprom_cli(0x50);
 Confd confd(eeprom_cli);
@@ -115,6 +121,7 @@ void taskSensorsRead( void * parameter );
 void taskDetectCharging( void * parameter );
 void taskChargingLeds( void * parameter );
 void taskChargingStats( void * parameter );
+void taskSetupWifi( void * parameter );
 void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, bool do_reset_data);
 int radio_btn_menu(char **variants, int len, int initial_idx, bool rotate, int screen_size);
 void setup_wifi(void);
@@ -152,6 +159,12 @@ void setup() {
       Mutex to block sensor reading when write
     */
     xMutexSensorRead = xSemaphoreCreateMutex();
+
+    /*
+      Semaphore to block reinitializing wifi
+    */
+    vSemaphoreCreateBinary(SetupWifiSemaphore);
+    xSemaphoreGive(SetupWifiSemaphore);
 
     /*
         Initialize encoder button queue
@@ -218,6 +231,12 @@ void setup() {
                 NULL);
     xTaskCreate(taskChargingStats,
                 "Save chargigs to struct",
+                1000,
+                NULL,
+                1,
+                NULL);
+    xTaskCreate(taskSetupWifi,
+                "Setup wifi",
                 1000,
                 NULL,
                 1,
@@ -490,6 +509,55 @@ void taskChargingStats( void * parameter ) {
     }
 }
 
+void taskSetupWifi( void * parameter ) {
+    WifiMode mode;
+    WifiState state;
+    char pw[WIFI_PW_ADDR_SIZE];
+    char name[WIFI_NAME_ADDR_SIZE];
+    uint8_t res;
+    while(1){
+        if (xSemaphoreTake(SetupWifiSemaphore, portMAX_DELAY) == pdPASS){
+            res = confd.read_wifi_state(&state);
+            if(res != 0){
+                state.state = Wifi_Off;
+                Log.error("Failed to read wifi state" CR);
+            }
+            if (state.state == Wifi_On){
+                res = confd.read_wifi_mode(&mode);
+                if(res != 0){
+                    Log.error("Failed to read wifi mode" CR);
+                }
+                res = confd.read_wifi_pw((uint8_t*)pw);
+                if(res != 0){
+                    Log.error("Failed to read wifi pw" CR);
+                }
+                res = confd.read_wifi_name((uint8_t*)name);
+                if(res != 0){
+                    Log.error("Failed to read wifi name" CR);
+                }
+
+                if (mode.mode == ap_mode){
+                    Log.notice("Start AP" CR);
+                    IPAddress local_IP(192, 168, 0, 1);
+                    WiFi.softAPConfig(local_IP, local_IP, IPAddress(255, 255, 255, 0));   // subnet FF FF FF 00
+                    WiFi.softAP(name, pw);
+
+                }
+                if (mode.mode == sta_mode){
+                    Log.notice("Connect to AP" CR);
+                    WiFi.begin(name, pw);
+                }
+                // Wait for connection
+                while (WiFi.status() != WL_CONNECTED) {
+                    vTaskDelay(pdMS_TO_TICKS(500));
+                    Log.notice(".");
+                }
+                Log.notice("." CR);
+            }
+        }
+    }
+}
+
 /** Example menu item specific enter callback function, run when the associated menu item is entered. */
 static void Level1Item1_Select(int parent_index)
 {
@@ -730,6 +798,7 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
         Log.error("Failed to save wifi name" CR);
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
+    if (xSemaphoreGive(SetupWifiSemaphore) != pdTRUE) Log.error("Failed to give setup wifi semaphore semaphore" CR);
     Menu_Navigate(&Menu_1_2);
 }
 
@@ -763,6 +832,7 @@ static void Wifi_Pw_Menu_Enter(Key_Pressed_t key){
         Log.error("Failed to save wifi pw" CR);
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
+    if (xSemaphoreGive(SetupWifiSemaphore) != pdTRUE) Log.error("Failed to give setup wifi semaphore semaphore" CR);
     Menu_Navigate(&Menu_1_2);
 }
 
@@ -794,6 +864,7 @@ static void Wifi_Mode_Menu_Enter(Key_Pressed_t key){
         Log.error("Failed to save wifi mode" CR);
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
+    if (xSemaphoreGive(SetupWifiSemaphore) != pdTRUE) Log.error("Failed to give setup wifi semaphore semaphore" CR);
     Menu_Navigate(&Menu_1_2);
 }
 
@@ -825,6 +896,7 @@ static void Wifi_State_Menu_Enter(Key_Pressed_t key){
         Log.error("Failed to save wifi state" CR);
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
+    if (xSemaphoreGive(SetupWifiSemaphore) != pdTRUE) Log.error("Failed to give setup wifi semaphore semaphore" CR);
     Menu_Navigate(&Menu_1_2);
 }
 
@@ -843,7 +915,10 @@ static void Wifi_Search_Menu_Enter(Key_Pressed_t key){
     for(int i=0; i<networks_n; i++) WiFi.SSID(i).toCharArray(ssids[i], WIFI_NAME_ADDR_SIZE);
     while(1){
         int chosen_n = radio_btn_menu(ssids, networks_n, 0, true, 2);
-        lcd_buffer.print(0, "%s: %d\n", ssids[chosen_n], WiFi.RSSI(chosen_n));
+        String enc_type;
+        if (WiFi.encryptionType(chosen_n) == WIFI_AUTH_OPEN) enc_type = "Op";
+        else enc_type = "Cl";
+        lcd_buffer.print(0, "%s: %d %s\n", ssids[chosen_n], WiFi.RSSI(chosen_n), enc_type);
         while(1){
             if (uxQueueMessagesWaiting(encActionsQueue) > 0){
                 xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
@@ -865,6 +940,7 @@ static void Wifi_Search_Menu_Enter(Key_Pressed_t key){
         }
         break;
     }
+    if (xSemaphoreGive(SetupWifiSemaphore) != pdTRUE) Log.error("Failed to give setup wifi semaphore semaphore" CR);
     Menu_Navigate(&Menu_1_2);
 }
 
@@ -1014,41 +1090,4 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-}
-
-void setup_wifi(){
-    WifiMode mode;
-    char pw[WIFI_PW_ADDR_SIZE];
-    char name[WIFI_NAME_ADDR_SIZE];
-    uint8_t res;
-    res = confd.read_wifi_mode(&mode);
-    if(res != 0){
-        Log.error("Failed to read wifi mode" CR);
-    }
-    res = confd.read_wifi_pw((uint8_t*)pw);
-    if(res != 0){
-        Log.error("Failed to read wifi pw" CR);
-    }
-    res = confd.read_wifi_name((uint8_t*)name);
-    if(res != 0){
-        Log.error("Failed to read wifi name" CR);
-    }
-
-    if (mode.mode == ap_mode){
-        Log.notice("Start AP" CR);
-        IPAddress local_IP(192, 168, 0, 1);
-        WiFi.softAPConfig(local_IP, local_IP, IPAddress(255, 255, 255, 0));   // subnet FF FF FF 00
-        WiFi.softAP(name, pw);
-
-    }
-    if (mode.mode == sta_mode){
-        WiFi.begin(name, pw);
-
-    }
-    // Wait for connection
-    while (WiFi.status() != WL_CONNECTED) {
-        vTaskDelay(pdMS_TO_TICKS(500));
-        Log.notice(".");
-    }
-    Log.notice("." CR);
 }
