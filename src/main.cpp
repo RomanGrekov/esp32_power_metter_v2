@@ -116,7 +116,7 @@ void taskDetectCharging( void * parameter );
 void taskChargingLeds( void * parameter );
 void taskChargingStats( void * parameter );
 void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, bool do_reset_data);
-int radio_btn_menu(const char **variants, int len, int initial_idx, bool rotate, int screen_size);
+int radio_btn_menu(char **variants, int len, int initial_idx, bool rotate, int screen_size);
 void setup_wifi(void);
 
 void setup() {
@@ -617,7 +617,7 @@ static void sensor_del(Key_Pressed_t key){
     int res;
 
     lcd_buffer.print(0, "Are you shure?");
-    const char *yesno[] = {"Yes", "No"};
+    char *yesno[] = {"Yes", "No"};
     Log.notice("%d" CR, sizeof(yesno));
     res = radio_btn_menu(yesno, 2, 1, true, 1);
     if (res == 0){
@@ -781,7 +781,7 @@ static void Wifi_Mode_Menu_Select(int parent_index){
 static void Wifi_Mode_Menu_Enter(Key_Pressed_t key){
     uint8_t res=1;
     WifiMode mode;
-    const char * mode_str[] = {"STA-station", "AP-access poin"};
+    char * mode_str[] = {"STA-station", "AP-access poin"};
     res = confd.read_wifi_mode(&mode);
     if(res != 0 || mode.mode > 2 || mode.mode < 1){
         mode.mode = ap_mode;
@@ -812,7 +812,7 @@ static void Wifi_State_Menu_Select(int parent_index){
 static void Wifi_State_Menu_Enter(Key_Pressed_t key){
     uint8_t res=1;
     WifiState state;
-    const char * states_str[] = {"Off", "On"};
+    char * states_str[] = {"Off", "On"};
     res = confd.read_wifi_state(&state);
     if(res != 0 || state.state < Wifi_Off || state.state > Wifi_On){
         state.state = Wifi_Off;
@@ -829,6 +829,7 @@ static void Wifi_State_Menu_Enter(Key_Pressed_t key){
 }
 
 static void Wifi_Search_Menu_Enter(Key_Pressed_t key){
+    EncActions enc_action;
     lcd_buffer.print(0, "Searching...");
     int networks_n = WiFi.scanNetworks(false, true, false, 300);
     lcd_buffer.print(1, "Found: %d nets", networks_n);
@@ -836,17 +837,38 @@ static void Wifi_Search_Menu_Enter(Key_Pressed_t key){
         vTaskDelay(pdMS_TO_TICKS(2000));
         Menu_Navigate(&Menu_1_2);
     }
-    char ssids[networks_n][16];
-    for(int i=0; i<networks_n; i++){
-        //strcpy(ssids[i], WiFi.SSID(i).c_str());
-        sprintf(ssids[i], "%.14s", WiFi.SSID(i).c_str());
+    char **ssids;
+    ssids = new char *[networks_n];
+    String ssid;
+    for(int i=0; i<networks_n; i++) WiFi.SSID(i).toCharArray(ssids[i], WIFI_NAME_ADDR_SIZE);
+    while(1){
+        int chosen_n = radio_btn_menu(ssids, networks_n, 0, true, 2);
+        lcd_buffer.print(0, "%s: %d\n", ssids[chosen_n], WiFi.RSSI(chosen_n));
+        while(1){
+            if (uxQueueMessagesWaiting(encActionsQueue) > 0){
+                xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
+                if (enc_action == encActionBtnPressed) break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        char *yesno[] = {"No", "Yes"};
+        lcd_buffer.print(0, "Use this net?");
+        int res = radio_btn_menu(yesno, 2, 0, true, 1);
+        if (res == 0) continue;
+        if (res == 1){
+            res = confd.store_wifi_name((uint8_t *)ssids[chosen_n]);
+            if (res != 0){
+                lcd_buffer.print(0, "Failed!!!");
+                Log.error("Failed to choose network" CR);
+                vTaskDelay(pdMS_TO_TICKS(2000));
+            }
+        }
+        break;
     }
-    for(int i=0; i<networks_n; i++) Log.notice("%s" CR, ssids[i]);
-    int chosen_n = radio_btn_menu((const char**)ssids, networks_n, 0, true, 2);
-    while(1) vTaskDelay(100);
+    Menu_Navigate(&Menu_1_2);
 }
 
-int radio_btn_menu(const char  **variants, int len, int initial_idx, bool rotate, int screen_size){
+int radio_btn_menu(char  **variants, int len, int initial_idx, bool rotate, int screen_size){
     int cur_idx = initial_idx;
     int cur_idx_old=len;
     int cur_line=0;
@@ -893,8 +915,6 @@ int radio_btn_menu(const char  **variants, int len, int initial_idx, bool rotate
                     cur_line = cur_idx;
                     start_from_idx = 0;
                 }
-                Log.notice("Start from: %d" CR, start_from_idx);
-                Log.notice("Cur line: %d" CR, cur_line);
                 for (int i=0; i<screen_size; i++){
                     if ((start_from_idx + i) < len){
                         if(cur_line == i) lcd_buffer.print(i, "> %s", variants[start_from_idx + i]);
@@ -915,6 +935,9 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
     int pos_old=0;
     int symb=0;
     int symb_old=0;
+    int offset;
+    int cursor_pos=0;
+    int start_from_idx=0;
 
     if (do_reset_data) for(int i=0; i<len; i++)data[i]=' ';
 
@@ -959,21 +982,35 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
                 break;
             }
         }
-        if (symb != symb_old || pos != pos_old || mode != mode_old){
+        if (symb != symb_old || pos != pos_old){
             if (symb != symb_old){
                 symb_old = symb;
                 data[pos] = alphabet[symb];
-                lcd_buffer.printsymb(pos, 1, alphabet[symb]);
             }
             if (pos != pos_old){
                 pos_old = pos;
-                lcd_buffer.cursor_pos(pos, 1);
+                if (pos < MAX_SCREEN_C) {
+                    cursor_pos = pos;
+                    start_from_idx = 0;
+                }
+                else {
+                    offset = pos % MAX_SCREEN_C;
+                    if (offset != 0){
+                        cursor_pos = offset;
+                        start_from_idx = pos - offset;
+                    } else {
+                        cursor_pos = 0;
+                        start_from_idx = pos;
+                    }
+                }
             }
-            if (mode != mode_old){
-                mode_old = mode;
-                if (mode == edit_mode) lcd_buffer.blink_cursor_on_off(true);
-                if (mode == moving_mode) lcd_buffer.blink_cursor_on_off(false);
-            }
+            lcd_buffer.printarray(1, data+start_from_idx, len-start_from_idx);
+            lcd_buffer.cursor_pos(cursor_pos, 1);
+        }
+        if (mode != mode_old){
+            mode_old = mode;
+            if (mode == edit_mode) lcd_buffer.blink_cursor_on_off(true);
+            if (mode == moving_mode) lcd_buffer.blink_cursor_on_off(false);
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
