@@ -57,6 +57,11 @@ enum EncActions{
 int current_sensor_n=0;
 
 /*
+    Flag when something changed in wifi settings
+*/
+static volatile bool WifiSettingsChanged=true;
+
+/*
     Sensors addreses
 */
 #define MAX_SENSORS_AMOUNT 10
@@ -207,7 +212,7 @@ void setup() {
                 NULL);
     xTaskCreate(taskMenu,
                 "Menu handle",
-                100000,
+                10000,
                 NULL,
                 1,
                 NULL);
@@ -516,7 +521,8 @@ void taskSetupWifi( void * parameter ) {
     char name[WIFI_NAME_ADDR_SIZE];
     uint8_t res;
     while(1){
-        if (xSemaphoreTake(SetupWifiSemaphore, 10) == pdPASS){
+        if (WifiSettingsChanged){
+            WifiSettingsChanged = false;
             res = confd.read_wifi_state(&state);
             if(res != 0){
                 state.state = Wifi_Off;
@@ -548,16 +554,28 @@ void taskSetupWifi( void * parameter ) {
                     Log.verbose("AP: '%s'" CR, name);
                     Log.verbose("PW: '%s'" CR, pw);
                     WiFi.begin(name, pw);
+                    // Wait for connection
+                    #define WAIT_FOR_WIFI_CONNECT 120 // Seconds
+                    #define LOG_EVERY 5 // Seconds
+                    int retries = WAIT_FOR_WIFI_CONNECT;
+                    int log_round = LOG_EVERY;
+
+                    while (WiFi.status() != WL_CONNECTED && retries > 0 && !WifiSettingsChanged) {
+                        if (log_round == 0){
+                            Log.notice("." CR);
+                            log_round = LOG_EVERY;
+                        }
+                        vTaskDelay(pdMS_TO_TICKS(1000));
+                        retries--;
+                        log_round--;
+                    }
+                    if(WiFi.status() != WL_CONNECTED) Log.error("Failed to connect to WIFI" CR);
+                    if(WiFi.status() == WL_CONNECTED) Log.notice("Connected" CR);
                 }
-                // Wait for connection
-                int retries = 60;
-                while (WiFi.status() != WL_CONNECTED && retries > 0) {
-                    vTaskDelay(pdMS_TO_TICKS(1000));
-                    Log.notice(".");
-                    retries--;
-                }
-                if(retries == 0) Log.error("Failed to connect to WIFI" CR);
-                else Log.notice("Connected" CR);
+            }
+            else {
+                Log.notice("Disconnect wifi" CR);
+                WiFi.disconnect(true);
             }
         }
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -804,7 +822,7 @@ static void Wifi_Name_Menu_Enter(Key_Pressed_t key){
         Log.error("Failed to save wifi name" CR);
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
-    if (xSemaphoreGive(SetupWifiSemaphore) != pdTRUE) Log.error("Failed to give setup wifi semaphore semaphore" CR);
+    WifiSettingsChanged = true;
     Menu_Navigate(&Menu_1_2);
 }
 
@@ -838,7 +856,7 @@ static void Wifi_Pw_Menu_Enter(Key_Pressed_t key){
         Log.error("Failed to save wifi pw" CR);
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
-    if (xSemaphoreGive(SetupWifiSemaphore) != pdTRUE) Log.error("Failed to give setup wifi semaphore semaphore" CR);
+    WifiSettingsChanged = true;
     Menu_Navigate(&Menu_1_2);
 }
 
@@ -870,7 +888,7 @@ static void Wifi_Mode_Menu_Enter(Key_Pressed_t key){
         Log.error("Failed to save wifi mode" CR);
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
-    if (xSemaphoreGive(SetupWifiSemaphore) != pdTRUE) Log.error("Failed to give setup wifi semaphore semaphore" CR);
+    WifiSettingsChanged = true;
     Menu_Navigate(&Menu_1_2);
 }
 
@@ -902,15 +920,26 @@ static void Wifi_State_Menu_Enter(Key_Pressed_t key){
         Log.error("Failed to save wifi state" CR);
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
-    if (xSemaphoreGive(SetupWifiSemaphore) != pdTRUE) Log.error("Failed to give setup wifi semaphore semaphore" CR);
+    WifiSettingsChanged = true;
     Menu_Navigate(&Menu_1_2);
 }
 
 static void Wifi_Search_Menu_Enter(Key_Pressed_t key){
+    uint8_t res=1;
     EncActions enc_action;
     String enc_type;
     int chosen_n;
+    WifiState state;
+
+    state.state = Wifi_Off;
+    res = confd.store_wifi_state(&state);
+    if (res != 0){
+        Log.error("Failed to save wifi state" CR);
+    }
+    WifiSettingsChanged = true;
+
     lcd_buffer.print(0, "Searching...");
+    vTaskDelay(pdMS_TO_TICKS(1000));
     int networks_n = WiFi.scanNetworks(false, true, false, 300);
     lcd_buffer.print(1, "Found: %d nets", networks_n);
     Log.notice("Found %d networks" CR, networks_n);
@@ -918,9 +947,18 @@ static void Wifi_Search_Menu_Enter(Key_Pressed_t key){
         vTaskDelay(pdMS_TO_TICKS(2000));
         Menu_Navigate(&Menu_1_2);
     }
-    char **ssids;
-    ssids = new char *[networks_n];
-    for(int i=0; i<networks_n; i++) WiFi.SSID(i).toCharArray(ssids[i], WIFI_NAME_ADDR_SIZE-1);
+    //char **ssids;
+    //ssids = new char *[networks_n];
+    char *ssids[networks_n];
+    String ssid;
+    int length;
+    for(int i=0; i<networks_n; i++) {
+        ssid = WiFi.SSID(i);
+        length = ssid.length()+1; // Doean't include \0 symbol
+        if (length > WIFI_NAME_ADDR_SIZE) length = WIFI_NAME_ADDR_SIZE;
+        ssids[i] = (char *)malloc(length * sizeof(char));
+        ssid.toCharArray(ssids[i], length);
+    }
     while(1){
         Log.notice("Before radio button" CR);
         chosen_n = radio_btn_menu(ssids, networks_n, 0, true, 2);
@@ -948,7 +986,12 @@ static void Wifi_Search_Menu_Enter(Key_Pressed_t key){
         }
         break;
     }
-    if (xSemaphoreGive(SetupWifiSemaphore) != pdTRUE) Log.error("Failed to give setup wifi semaphore semaphore" CR);
+    state.state = Wifi_On;
+    res = confd.store_wifi_state(&state);
+    if (res != 0){
+        Log.error("Failed to save wifi state" CR);
+    }
+    WifiSettingsChanged = true;
     Menu_Navigate(&Menu_1_2);
 }
 
