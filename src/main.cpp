@@ -73,7 +73,7 @@ McpLeds Leds(0, MAX_SENSORS_AMOUNT);
 /*
     Alphabet for Wifi
 */
-const char standard_alphabet[] = " ._-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const char standard_alphabet[] = " ._-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 #define standard_alphabet_size sizeof(standard_alphabet)-1 // Last symbol is always \0
 
 /*
@@ -207,7 +207,7 @@ void setup() {
                 NULL);
     xTaskCreate(taskMenu,
                 "Menu handle",
-                10000,
+                100000,
                 NULL,
                 1,
                 NULL);
@@ -237,7 +237,7 @@ void setup() {
                 NULL);
     xTaskCreate(taskSetupWifi,
                 "Setup wifi",
-                1000,
+                10000,
                 NULL,
                 1,
                 NULL);
@@ -516,7 +516,7 @@ void taskSetupWifi( void * parameter ) {
     char name[WIFI_NAME_ADDR_SIZE];
     uint8_t res;
     while(1){
-        if (xSemaphoreTake(SetupWifiSemaphore, portMAX_DELAY) == pdPASS){
+        if (xSemaphoreTake(SetupWifiSemaphore, 10) == pdPASS){
             res = confd.read_wifi_state(&state);
             if(res != 0){
                 state.state = Wifi_Off;
@@ -545,16 +545,22 @@ void taskSetupWifi( void * parameter ) {
                 }
                 if (mode.mode == sta_mode){
                     Log.notice("Connect to AP" CR);
+                    Log.verbose("AP: '%s'" CR, name);
+                    Log.verbose("PW: '%s'" CR, pw);
                     WiFi.begin(name, pw);
                 }
                 // Wait for connection
-                while (WiFi.status() != WL_CONNECTED) {
-                    vTaskDelay(pdMS_TO_TICKS(500));
+                int retries = 60;
+                while (WiFi.status() != WL_CONNECTED && retries > 0) {
+                    vTaskDelay(pdMS_TO_TICKS(1000));
                     Log.notice(".");
+                    retries--;
                 }
-                Log.notice("." CR);
+                if(retries == 0) Log.error("Failed to connect to WIFI" CR);
+                else Log.notice("Connected" CR);
             }
         }
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -902,20 +908,22 @@ static void Wifi_State_Menu_Enter(Key_Pressed_t key){
 
 static void Wifi_Search_Menu_Enter(Key_Pressed_t key){
     EncActions enc_action;
+    String enc_type;
+    int chosen_n;
     lcd_buffer.print(0, "Searching...");
     int networks_n = WiFi.scanNetworks(false, true, false, 300);
     lcd_buffer.print(1, "Found: %d nets", networks_n);
+    Log.notice("Found %d networks" CR, networks_n);
     if (networks_n < 1){
         vTaskDelay(pdMS_TO_TICKS(2000));
         Menu_Navigate(&Menu_1_2);
     }
     char **ssids;
     ssids = new char *[networks_n];
-    String ssid;
-    for(int i=0; i<networks_n; i++) WiFi.SSID(i).toCharArray(ssids[i], WIFI_NAME_ADDR_SIZE);
+    for(int i=0; i<networks_n; i++) WiFi.SSID(i).toCharArray(ssids[i], WIFI_NAME_ADDR_SIZE-1);
     while(1){
-        int chosen_n = radio_btn_menu(ssids, networks_n, 0, true, 2);
-        String enc_type;
+        Log.notice("Before radio button" CR);
+        chosen_n = radio_btn_menu(ssids, networks_n, 0, true, 2);
         if (WiFi.encryptionType(chosen_n) == WIFI_AUTH_OPEN) enc_type = "Op";
         else enc_type = "Cl";
         lcd_buffer.print(0, "%s: %d %s\n", ssids[chosen_n], WiFi.RSSI(chosen_n), enc_type);
@@ -941,6 +949,28 @@ static void Wifi_Search_Menu_Enter(Key_Pressed_t key){
         break;
     }
     if (xSemaphoreGive(SetupWifiSemaphore) != pdTRUE) Log.error("Failed to give setup wifi semaphore semaphore" CR);
+    Menu_Navigate(&Menu_1_2);
+}
+
+static void Wifi_Info_Menu_Select(int parent_index){
+    String status;
+    if(WiFi.status() == WL_CONNECTED) status = "conn";
+    else status = "nc";
+    lcd_buffer.print(1, "Status: %s", status);
+}
+
+static void Wifi_Info_Menu_Enter(Key_Pressed_t key){
+    EncActions enc_action;
+    IPAddress ip;
+    ip = WiFi.localIP();
+    lcd_buffer.print(0, "IP: %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+    while(1){
+        if (uxQueueMessagesWaiting(encActionsQueue) > 0){
+            xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
+            if (enc_action == encActionBtnPressed) break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
     Menu_Navigate(&Menu_1_2);
 }
 
@@ -1014,8 +1044,9 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
     int offset;
     int cursor_pos=0;
     int start_from_idx=0;
+    int symbols_len = len-1;
 
-    if (do_reset_data) for(int i=0; i<len; i++)data[i]=' ';
+    if (do_reset_data) for(int i=0; i<symbols_len; i++)data[i]=' ';
 
     enum Modes {
         edit_mode=0,
@@ -1024,7 +1055,7 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
     Modes mode = moving_mode;
     Modes mode_old = mode;
 
-    lcd_buffer.printarray(1, data, len);
+    lcd_buffer.printarray(1, data, symbols_len);
     lcd_buffer.cursor_pos(pos, 1);
     lcd_buffer.blink_cursor_on_off(true);
     lcd_buffer.underscore_cursor_on_off(true);
@@ -1033,7 +1064,7 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
             xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
             switch(enc_action){
                 case encActionCwMove:
-                    if (mode == moving_mode) if (pos < len-1) pos++;
+                    if (mode == moving_mode) if (pos < symbols_len-1) pos++;
                     if (mode == edit_mode) if (symb < alphabet_len-1) symb++;
                 break;
                 case encActionCcwMove:
@@ -1043,7 +1074,7 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
                 case encActionBtnPressed:
                     if (mode == edit_mode){
                         mode = moving_mode;
-                        if (pos < len-1) pos++;
+                        if (pos < symbols_len-1) pos++;
                     }
                     else {
                         mode = edit_mode;
@@ -1054,6 +1085,7 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
                 case encActionBtnLongPressed:
                     lcd_buffer.blink_cursor_on_off(false);
                     lcd_buffer.underscore_cursor_on_off(false);
+                    data[pos+1] = '\0';
                     return;
                 break;
             }
@@ -1080,7 +1112,7 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
                     }
                 }
             }
-            lcd_buffer.printarray(1, data+start_from_idx, len-start_from_idx);
+            lcd_buffer.printarray(1, data+start_from_idx, symbols_len-start_from_idx);
             lcd_buffer.cursor_pos(cursor_pos, 1);
         }
         if (mode != mode_old){

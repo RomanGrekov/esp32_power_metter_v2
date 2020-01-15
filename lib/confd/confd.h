@@ -14,9 +14,9 @@
 #define SENSOR_AMOUNT 10
 
 #define WIFI_NAME_ADDR_START (SENSOR_ADDR_START + SENSOR_AMOUNT + 1)
-#define WIFI_NAME_ADDR_SIZE 32
+#define WIFI_NAME_ADDR_SIZE 33
 #define WIFI_PW_ADDR_START (WIFI_NAME_ADDR_START + WIFI_NAME_ADDR_SIZE + 1)
-#define WIFI_PW_ADDR_SIZE 16
+#define WIFI_PW_ADDR_SIZE 17
 
 enum WifiModeEnum {
     na_mode = 0,  // Not available status
