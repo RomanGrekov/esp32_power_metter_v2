@@ -129,7 +129,8 @@ void taskChargingStats( void * parameter );
 void taskSetupWifi( void * parameter );
 void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, bool do_reset_data);
 int radio_btn_menu(char **variants, int len, int initial_idx, bool rotate, int screen_size);
-void setup_wifi(void);
+void wifi_connect(void);
+void wifi_disconnect();
 
 void setup() {
     /*
@@ -212,7 +213,7 @@ void setup() {
                 NULL);
     xTaskCreate(taskMenu,
                 "Menu handle",
-                10000,
+                15000,
                 NULL,
                 1,
                 NULL);
@@ -515,11 +516,8 @@ void taskChargingStats( void * parameter ) {
 }
 
 void taskSetupWifi( void * parameter ) {
-    WifiMode mode;
-    WifiState state;
-    char pw[WIFI_PW_ADDR_SIZE];
-    char name[WIFI_NAME_ADDR_SIZE];
     uint8_t res;
+    WifiState state;
     while(1){
         if (WifiSettingsChanged){
             WifiSettingsChanged = false;
@@ -529,54 +527,14 @@ void taskSetupWifi( void * parameter ) {
                 Log.error("Failed to read wifi state" CR);
             }
             if (state.state == Wifi_On){
-                res = confd.read_wifi_mode(&mode);
-                if(res != 0){
-                    Log.error("Failed to read wifi mode" CR);
-                }
-                res = confd.read_wifi_pw((uint8_t*)pw);
-                if(res != 0){
-                    Log.error("Failed to read wifi pw" CR);
-                }
-                res = confd.read_wifi_name((uint8_t*)name);
-                if(res != 0){
-                    Log.error("Failed to read wifi name" CR);
-                }
-
-                if (mode.mode == ap_mode){
-                    Log.notice("Start AP" CR);
-                    IPAddress local_IP(192, 168, 0, 1);
-                    WiFi.softAPConfig(local_IP, local_IP, IPAddress(255, 255, 255, 0));   // subnet FF FF FF 00
-                    WiFi.softAP(name, pw);
-
-                }
-                if (mode.mode == sta_mode){
-                    Log.notice("Connect to AP" CR);
-                    Log.verbose("AP: '%s'" CR, name);
-                    Log.verbose("PW: '%s'" CR, pw);
-                    WiFi.begin(name, pw);
-                    // Wait for connection
-                    #define WAIT_FOR_WIFI_CONNECT 120 // Seconds
-                    #define LOG_EVERY 5 // Seconds
-                    int retries = WAIT_FOR_WIFI_CONNECT;
-                    int log_round = LOG_EVERY;
-
-                    while (WiFi.status() != WL_CONNECTED && retries > 0 && !WifiSettingsChanged) {
-                        if (log_round == 0){
-                            Log.notice("." CR);
-                            log_round = LOG_EVERY;
-                        }
-                        vTaskDelay(pdMS_TO_TICKS(1000));
-                        retries--;
-                        log_round--;
-                    }
-                    if(WiFi.status() != WL_CONNECTED) Log.error("Failed to connect to WIFI" CR);
-                    if(WiFi.status() == WL_CONNECTED) Log.notice("Connected" CR);
-                }
+                wifi_connect();
+            } else {
+                wifi_disconnect();
             }
-            else {
-                Log.notice("Disconnect wifi" CR);
-                WiFi.disconnect(true);
-            }
+        }
+        if (state.state == Wifi_On && WiFi.status() != WL_CONNECTED){
+            wifi_disconnect();
+            wifi_connect();
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -1165,4 +1123,62 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+}
+
+void wifi_connect(void){
+    WifiMode mode;
+    char pw[WIFI_PW_ADDR_SIZE];
+    char name[WIFI_NAME_ADDR_SIZE];
+    uint8_t res;
+    res = confd.read_wifi_mode(&mode);
+    if(res != 0){
+        Log.error("Failed to read wifi mode" CR);
+    }
+    res = confd.read_wifi_pw((uint8_t*)pw);
+    if(res != 0){
+        Log.error("Failed to read wifi pw" CR);
+    }
+    res = confd.read_wifi_name((uint8_t*)name);
+    if(res != 0){
+        Log.error("Failed to read wifi name" CR);
+    }
+
+    if (mode.mode == ap_mode){
+        Log.notice("Start AP" CR);
+        IPAddress local_IP(192, 168, 0, 1);
+        WiFi.softAPConfig(local_IP, local_IP, IPAddress(255, 255, 255, 0));   // subnet FF FF FF 00
+        WiFi.softAP(name, pw);
+
+    }
+    if (mode.mode == sta_mode){
+        Log.notice("Connect to AP" CR);
+        Log.verbose("AP: '%s'" CR, name);
+        Log.verbose("PW: '%s'" CR, pw);
+        WiFi.disconnect(true);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        WiFi.begin(name, pw);
+        // Wait for connection
+        #define WAIT_FOR_WIFI_CONNECT 60 // Seconds
+        #define LOG_EVERY 5 // Seconds
+        int seconds = WAIT_FOR_WIFI_CONNECT;
+        int log_round = LOG_EVERY;
+
+        while (WiFi.status() != WL_CONNECTED && seconds > 0 && !WifiSettingsChanged) {
+            if (log_round == 0){
+                Log.notice("Conncting ssid: %s, pw: %s... To reconnect %d seconds left" CR, name, pw, seconds);
+                log_round = LOG_EVERY;
+            }
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            seconds--;
+            log_round--;
+        }
+        if(WiFi.status() != WL_CONNECTED) Log.error("Failed to connect to WIFI" CR);
+        if(WiFi.status() == WL_CONNECTED) Log.notice("Connected" CR);
+    }
+}
+
+void wifi_disconnect(void){
+    Log.notice("Disconnect wifi" CR);
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
 }
