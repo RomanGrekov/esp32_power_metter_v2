@@ -3,6 +3,7 @@
 
 #include <Wire.h>
 #include "FreeRTOS.h"
+#include <Arduino.h>
 
 // Inherrited errors from twi lib from Wire library
 // Output   0 .. success

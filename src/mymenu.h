@@ -53,7 +53,7 @@ MENU_ITEM(UpperMenu1, Menu_1_1, Menu_1_2, Menu_1, NULL_MENU, select_uppermenu, e
 
 MENU_ITEM(Menu_2_1, Menu_2_2, UpperMenu2, NULL_MENU, Sensor_1, NULL, Read_Sensors_Enter, "Show existing", 0);
 MENU_ITEM(Menu_2_2, UpperMenu2, Menu_2_2, NULL_MENU, NULL_MENU, NULL, NULL, "Add sensor", 0);
-MENU_ITEM(UpperMenu2, Menu_2_1, Menu_2_2, Menu_1_1, NULL_MENU, select_uppermenu, enter_uppermenu, "Exit?", 0);
+MENU_ITEM(UpperMenu2, Menu_2_1, Menu_2_2, Menu_2, NULL_MENU, select_uppermenu, enter_uppermenu, "Exit?", 0);
 
 MENU_ITEM(Menu_1_2_1, Menu_1_2_2, UpperMenu1_2, NULL_MENU, NULL_MENU, Wifi_Name_Menu_Select, Wifi_Name_Menu_Enter, "WiFi name", 0);
 MENU_ITEM(Menu_1_2_2, Menu_1_2_3, Menu_1_2_1, NULL_MENU, NULL_MENU, Wifi_Pw_Menu_Select, Wifi_Pw_Menu_Enter, "WiFi password", 0);

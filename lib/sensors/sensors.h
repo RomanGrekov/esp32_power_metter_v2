@@ -23,6 +23,7 @@ public:
   float A;
   float Kwh;
   bool is_charging;
+  bool is_charging_old;
 
   uint8_t push_one_charging(OneCharge charge);
 private:

@@ -3,6 +3,7 @@
 
 #include <Adafruit_MCP23017.h>
 #include "FreeRTOS.h"
+#include <Arduino.h>
 
 /*
     Port expander

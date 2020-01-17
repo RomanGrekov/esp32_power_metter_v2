@@ -24,6 +24,7 @@ void LcdBuf::Show(){
             }
             else col++;
             //pos = col + row*MAX_SCREEN_C;
+            //Serial.printf("col: %d row: %d pos: %d\n", col, row, pos);
             _lcd.setCursor(col, row);
             if ((col + row*MAX_SCREEN_C) >= MAX_SCREEN_R * MAX_SCREEN_C) break;
             if (buffer[pos] == '\0' || buffer[pos] == '\n'){
@@ -56,21 +57,26 @@ void LcdBuf::Show(){
 }
 
 void LcdBuf::print(int row, const char *data, ...){
-    lcd_buf_changed = true;
     va_list args;
     va_start(args, data);
-    vsprintf(get_buffer(row), data, args);
+    int res = vsprintf(get_buffer(row), data, args);
     va_end(args);
+
+    if ((res+row*MAX_SCREEN_C) >= MAX_SCREEN_R*MAX_SCREEN_C) Serial.print("ERROR: More than buffer size written to LCD");
+    lcd_buf_changed = true;
 }
 
 void LcdBuf::printarray(int row, uint8_t *data, int size){
+    for(int i=0; i<size; i++){
+        if ((row*MAX_SCREEN_C+i) >= (MAX_SCREEN_R*MAX_SCREEN_C)) break;
+        *(get_buffer(row)+i) = data[i];
+    }
     lcd_buf_changed = true;
-    for(int i=0; i<size; i++) *(get_buffer(row)+i) = data[i];
 }
 
 void LcdBuf::printsymb(int col, int row, uint8_t symb){
-    lcd_buf_changed = true;
     *(buffer+row*MAX_SCREEN_C+col) = symb;
+    lcd_buf_changed = true;
 }
 
 char *LcdBuf::get_buffer(int row){

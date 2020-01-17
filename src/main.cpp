@@ -6,9 +6,6 @@
 #include <ArduinoLog.h>
 #include "FreeRTOS.h"
 #include <WiFi.h>
-#include <WiFiClient.h>
-#include <WebServer.h>
-#include <ESPmDNS.h>
 #include <Update.h>
 #include "html.h"
 #include "encoder.h"
@@ -22,7 +19,11 @@
 #include "leds.h"
 #include "sensors.h"
 #include <ESPDateTime.h>
+#include <ArduinoOTA.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
 
+#define CONFIG_ESP32_ENABLE_COREDUMP_TO_UART true
 /*
     Encoder pins
 */
@@ -113,6 +114,9 @@ xSemaphoreHandle SetupWifiSemaphore;
 EepromCli eeprom_cli(0x50);
 Confd confd(eeprom_cli);
 
+WebServer server(80);
+const char* www_username = "admin";
+const char* www_password = "esp8266";
 
 /*
     RTOS tasks prototypes
@@ -127,6 +131,7 @@ void taskDetectCharging( void * parameter );
 void taskChargingLeds( void * parameter );
 void taskChargingStats( void * parameter );
 void taskSetupWifi( void * parameter );
+void taskWebServer( void * parameter );
 void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, bool do_reset_data);
 int radio_btn_menu(char **variants, int len, int initial_idx, bool rotate, int screen_size);
 void wifi_connect(void);
@@ -183,7 +188,6 @@ void setup() {
     vSemaphoreCreateBinary(SensorsChangedSemaphore);
     xSemaphoreGive(SensorsChangedSemaphore);
 
-
     /*
         Declare RTOS tasks
     */
@@ -207,7 +211,7 @@ void setup() {
                 NULL);
     xTaskCreate(taskLcd,
                 "Lcd_show",
-                10000,
+                15000,
                 NULL,
                 1,
                 NULL);
@@ -243,6 +247,12 @@ void setup() {
                 NULL);
     xTaskCreate(taskSetupWifi,
                 "Setup wifi",
+                10000,
+                NULL,
+                1,
+                NULL);
+    xTaskCreate(taskWebServer,
+                "Handle web server",
                 10000,
                 NULL,
                 1,
@@ -356,9 +366,9 @@ void taskMenu( void * parameter ) {
 //}
 
 void taskLcd( void * parameter ) {
-    bool is_blinking_old=false;
-    xTimerHandle blink_timer;
-    const uint32_t timer_id=30;
+    //bool is_blinking_old=false;
+    //xTimerHandle blink_timer;
+    //const uint32_t timer_id=30;
     /*
         Setup LCD
         MUST to be called here. Otherwise LCD gluchit
@@ -463,6 +473,7 @@ void taskDetectCharging( void * parameter ) {
                     timers[id] = xTimerCreate("Is chargin treshold", pdMS_TO_TICKS(CHARGING_TRASHOLD * 1000),
                                              pdFALSE, (void *)id, &vCallbackNotCharging);
                     if (timers[id] == NULL) Log.error("Failed to create timer for sensor: %d" CR, id);
+                    else xTimerStart(timers[id], 0);
                 }
             }
         }
@@ -478,8 +489,13 @@ void taskChargingLeds( void * parameter ) {
 
     while(1){
         for (int id=0; id<MAX_SENSORS_AMOUNT; id++){
-            if (sensors_data[id].is_charging) Leds.on(id);
-            else Leds.off(id);
+            if (sensors_data[id].is_charging && sensors_data[id].is_charging != sensors_data[id].is_charging_old){
+                sensors_data[id].is_charging_old = sensors_data[id].is_charging;
+                Leds.on(id);
+            }
+            if (!sensors_data[id].is_charging && sensors_data[id].is_charging != sensors_data[id].is_charging_old){
+                Leds.off(id);
+            }
             vTaskDelay(pdMS_TO_TICKS(10));
         }
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -527,6 +543,7 @@ void taskSetupWifi( void * parameter ) {
                 Log.error("Failed to read wifi state" CR);
             }
             if (state.state == Wifi_On){
+                wifi_disconnect();
                 wifi_connect();
             } else {
                 wifi_disconnect();
@@ -537,6 +554,34 @@ void taskSetupWifi( void * parameter ) {
             wifi_connect();
         }
         vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+void taskWebServer( void * parameter ) {
+    bool wifi_was_connected=false;
+    //ArduinoOTA.begin();
+    server.on("/", [](){
+        if(!server.authenticate(www_username, www_password))
+          return server.requestAuthentication();
+        server.send(200, "text/plain", "Login OK");
+    });
+    server.on("/test/", [](){
+        if(!server.authenticate(www_username, www_password))
+          return server.requestAuthentication();
+        server.send(200, "text/plain", "Test page");
+    });
+    //
+
+    while(1){
+        if (WiFi.status() == WL_CONNECTED && !wifi_was_connected){
+            wifi_was_connected = true;
+            server.begin();
+        }
+        if (WiFi.status() == WL_CONNECTED){
+            server.handleClient();
+        }
+        //ArduinoOTA.handle();
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -1158,7 +1203,7 @@ void wifi_connect(void){
         vTaskDelay(pdMS_TO_TICKS(500));
         WiFi.begin(name, pw);
         // Wait for connection
-        #define WAIT_FOR_WIFI_CONNECT 60 // Seconds
+        #define WAIT_FOR_WIFI_CONNECT 30 // Seconds
         #define LOG_EVERY 5 // Seconds
         int seconds = WAIT_FOR_WIFI_CONNECT;
         int log_round = LOG_EVERY;
