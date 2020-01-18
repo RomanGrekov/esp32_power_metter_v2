@@ -43,6 +43,7 @@ static void select_uppermenu(int parent_index){
 }
 
 //        NAME     NEXT,    PREV    PARENT,    CHILD      SelectCallback        EnterCallback  Text
+MENU_ITEM(Menu_top, NULL_MENU, NULL_MENU, NULL_MENU, Menu_1, NULL      , NULL, "TOP", 0);
 MENU_ITEM(Menu_1, Menu_2, Menu_3, NULL_MENU, NULL_MENU, NULL              , showAllSensorsRuntime , "Show sensors", 0);
 MENU_ITEM(Menu_2, Menu_3, Menu_1, NULL_MENU, Menu_1_1 , Level1Item1_Select, Level1Item1_Enter, "Settings", 0);
 MENU_ITEM(Menu_3, Menu_1, Menu_2, NULL_MENU, NULL_MENU, NULL              , NULL             , "Menu 3", 0);

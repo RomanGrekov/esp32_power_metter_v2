@@ -1,23 +1,88 @@
 #include "sensors.h"
 
 uint8_t Sensor::push_one_charging(OneCharge charge){
-    if(chargings_n == MAX_CHARGINGS_AMOUNT){
+    if(this->chargings_n == MAX_CHARGINGS_AMOUNT){
         for (int id=0; id<MAX_CHARGINGS_AMOUNT-1; id++){
-            chargings[id].start = chargings[id+1].start;
-            chargings[id].finish = chargings[id+1].finish;
-            chargings[id].start_kwh = chargings[id+1].start_kwh;
-            chargings[id].finish_kwh = chargings[id+1].finish_kwh;
+            this->chargings[id].start = this->chargings[id+1].start;
+            this->chargings[id].finish = this->chargings[id+1].finish;
+            this->chargings[id].start_kwh = this->chargings[id+1].start_kwh;
+            this->chargings[id].finish_kwh = this->chargings[id+1].finish_kwh;
         }
-        chargings_n = MAX_CHARGINGS_AMOUNT-1;
+        this->chargings_n = MAX_CHARGINGS_AMOUNT-1;
     }
-    chargings[chargings_n].start = charge.start;
-    chargings[chargings_n].finish = charge.finish;
-    chargings[chargings_n].start_kwh = charge.start_kwh;
-    chargings[chargings_n].finish_kwh = charge.finish_kwh;
-    chargings_n++;
+    this->chargings[this->chargings_n].start = charge.start;
+    this->chargings[this->chargings_n].finish = charge.finish;
+    this->chargings[this->chargings_n].start_kwh = charge.start_kwh;
+    this->chargings[this->chargings_n].finish_kwh = charge.finish_kwh;
+    this->chargings_n++;
 
     return chargings_n;
 };
+
+bool Sensor::get_charging(void){
+    return this->is_charging;
+}
+
+void Sensor::set_charging(bool charging){
+    this->is_charging = charging;
+}
+
+bool Sensor::is_charging_detected(void){
+    if (this->is_charging && this->is_charging != this->is_charging_old){
+        this->is_charging_old = this->is_charging;
+        return true;
+    }
+    return false;
+}
+
+bool Sensor::is_stop_charging_detected(void){
+    if (!this->is_charging && this->is_charging != this->is_charging_old){
+        this->is_charging_old = this->is_charging;
+        return true;
+    }
+    return false;
+}
+
+void Sensor::set_a(float a){
+    if (isnan(a)) a = 0;
+    if (a != this->A_old){
+        this->A_old = this->A;
+    }
+    this->A = a;
+}
+
+void Sensor::set_v(float v){
+    if (isnan(v)) v = 0;
+    if (v != this->V_old){
+        this->V_old = this->V;
+    }
+    this->V = v;
+}
+
+void Sensor::set_kwh(float kwh){
+    if (isnan(kwh)) kwh = 0;
+    if (kwh != this->Kwh_old){
+        this->Kwh_old = this->Kwh;
+    }
+    this->Kwh = kwh;
+}
+
+float Sensor::get_v(void){
+    return this->V;
+}
+
+float Sensor::get_a(void){
+    return this->A;
+}
+
+float Sensor::get_kwh(void){
+    return this->Kwh;
+}
+
+bool Sensor::is_data_changed(void){
+    if (this->V != this->V_old || this->A != this->A_old || this->Kwh != this->Kwh_old) return true;
+    else return false;
+}
 
 uint8_t get_sensors_indexes(uint8_t *all_sensors, uint8_t *indexes, uint8_t amount){
     uint8_t addr=0;

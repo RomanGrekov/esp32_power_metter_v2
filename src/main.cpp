@@ -437,9 +437,9 @@ void taskSensorsRead( void * parameter ) {
       xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
       pzem.init(addr);
       sensors_data[indexes[index_n]].address = addr;
-      sensors_data[indexes[index_n]].V = pzem.voltage();
-      sensors_data[indexes[index_n]].A = pzem.current();
-      sensors_data[indexes[index_n]].Kwh = pzem.energy();
+      sensors_data[indexes[index_n]].set_v(pzem.voltage());
+      sensors_data[indexes[index_n]].set_a(pzem.current());
+      sensors_data[indexes[index_n]].set_kwh(pzem.energy());
       xSemaphoreGive(xMutexSensorRead);
 
       if (index_n < ws_amount-1) index_n++;
@@ -453,7 +453,7 @@ void taskSensorsRead( void * parameter ) {
 void vCallbackNotCharging( xTimerHandle xTimer ){
     uint32_t timer_id;
     timer_id = (uint32_t)pvTimerGetTimerID(xTimer);
-    sensors_data[timer_id].is_charging = false;
+    sensors_data[timer_id].set_charging(false);
 }
 
 void taskDetectCharging( void * parameter ) {
@@ -462,14 +462,14 @@ void taskDetectCharging( void * parameter ) {
 
     while (1) {
         for (uint32_t id=0; id<MAX_SENSORS_AMOUNT; id++){
-            if (sensors_data[id].A > 0){
-                sensors_data[id].is_charging = true;
+            if (sensors_data[id].get_a() > 0){
+                sensors_data[id].set_charging(true);
                 if(xTimerIsTimerActive(timers[id]) != pdFALSE){
                     BaseType_t res = xTimerStop(timers[id], pdMS_TO_TICKS(100));
                     if (res != pdPASS) Log.error("Failed to stop timer for sensor: %d" CR, id);
                 }
             }else{
-                if(sensors_data[id].is_charging){
+                if(sensors_data[id].get_charging()){
                     timers[id] = xTimerCreate("Is chargin treshold", pdMS_TO_TICKS(CHARGING_TRASHOLD * 1000),
                                              pdFALSE, (void *)id, &vCallbackNotCharging);
                     if (timers[id] == NULL) Log.error("Failed to create timer for sensor: %d" CR, id);
@@ -489,13 +489,8 @@ void taskChargingLeds( void * parameter ) {
 
     while(1){
         for (int id=0; id<MAX_SENSORS_AMOUNT; id++){
-            if (sensors_data[id].is_charging && sensors_data[id].is_charging != sensors_data[id].is_charging_old){
-                sensors_data[id].is_charging_old = sensors_data[id].is_charging;
-                Leds.on(id);
-            }
-            if (!sensors_data[id].is_charging && sensors_data[id].is_charging != sensors_data[id].is_charging_old){
-                Leds.off(id);
-            }
+            if (sensors_data[id].is_charging_detected()) Leds.on(id);
+            if (sensors_data[id].is_stop_charging_detected()) Leds.off(id);
             vTaskDelay(pdMS_TO_TICKS(10));
         }
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -506,17 +501,17 @@ void taskChargingStats( void * parameter ) {
     OneCharge _chargings[MAX_SENSORS_AMOUNT];
     while(1){
         for (int id=0; id<MAX_SENSORS_AMOUNT; id++){
-            if(sensors_data[id].is_charging){
+            if(sensors_data[id].get_charging()){
                 // Search for started chargings
                 if(_chargings[id].start > 0) continue;
                 else {
                     _chargings[id].start = DateTime.now();
-                    _chargings[id].start_kwh = sensors_data[id].Kwh;
+                    _chargings[id].start_kwh = sensors_data[id].get_kwh();
                 }
             } else {
                 if(_chargings[id].start > 0){
                     _chargings[id].finish = DateTime.now();
-                    _chargings[id].finish_kwh = sensors_data[id].Kwh;
+                    _chargings[id].finish_kwh = sensors_data[id].get_kwh();
                 }
             }
             if (_chargings[id].start > 0 && _chargings[id].finish > 0){
@@ -561,6 +556,7 @@ void taskWebServer( void * parameter ) {
     bool wifi_was_connected=false;
     //ArduinoOTA.begin();
     server.on("/", [](){
+        Log.verbose("Inside / url" CR);
         if(!server.authenticate(www_username, www_password))
           return server.requestAuthentication();
         server.send(200, "text/plain", "Login OK");
@@ -575,11 +571,13 @@ void taskWebServer( void * parameter ) {
     while(1){
         if (WiFi.status() == WL_CONNECTED && !wifi_was_connected){
             wifi_was_connected = true;
+            Log.notice("Starting web server..." CR);
             server.begin();
         }
         if (WiFi.status() == WL_CONNECTED){
             server.handleClient();
         }
+        if (WiFi.status() != WL_CONNECTED) wifi_was_connected = false;
         //ArduinoOTA.handle();
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -729,16 +727,20 @@ static void sensor_del(Key_Pressed_t key){
 static void sensor_show(Key_Pressed_t key){
     EncActions enc_action;
     uint8_t addr = sensors[current_sensor_n];
+    bool first_show = true;
     while(1){
         if (addr == 0){
             lcd_buffer.print(0, "Sensor absent\nplease add it!");
         }
         else{
-            xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
-            lcd_buffer.print(0, "V %.1f A %.2f\nE %.2f", sensors_data[current_sensor_n].V,
-                                                         sensors_data[current_sensor_n].A,
-                                                         sensors_data[current_sensor_n].Kwh);
-            xSemaphoreGive(xMutexSensorRead);
+            if (sensors_data[current_sensor_n].is_data_changed() || first_show){
+                xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
+                lcd_buffer.print(0, "V %.1f A %.2f\nE %.2f", sensors_data[current_sensor_n].get_v(),
+                                                             sensors_data[current_sensor_n].get_a(),
+                                                             sensors_data[current_sensor_n].get_kwh());
+                first_show = false;
+                xSemaphoreGive(xMutexSensorRead);
+            }
         }
         if (uxQueueMessagesWaiting(encActionsQueue) > 0){
             xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
@@ -754,6 +756,7 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
     uint8_t ws_amount=0;
     uint8_t index_n=0;
     uint8_t indexes[MAX_SENSORS_AMOUNT];
+    bool first_show = true;
 
     index_n=0;
     while(1){
@@ -764,32 +767,35 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
-        xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
-        lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", indexes[index_n]+1,
-                                                               sensors_data[indexes[index_n]].Kwh,
-                                                               sensors_data[indexes[index_n]].V,
-                                                               sensors_data[indexes[index_n]].A);
-        xSemaphoreGive(xMutexSensorRead);
+        if (sensors_data[indexes[index_n]].is_data_changed() || first_show){
+            xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
+            lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", indexes[index_n]+1,
+                                                                   sensors_data[indexes[index_n]].get_kwh(),
+                                                                   sensors_data[indexes[index_n]].get_v(),
+                                                                   sensors_data[indexes[index_n]].get_a());
+            xSemaphoreGive(xMutexSensorRead);
+            first_show = false;
+        }
         if (uxQueueMessagesWaiting(encActionsQueue) > 0){
             xQueueReceive(encActionsQueue, &enc_action, portMAX_DELAY);
             switch(enc_action){
                 case encActionCwMove:
                     if (index_n < ws_amount-1) index_n++;
                     else index_n = 0;
+                    first_show = true;
                 break;
                 case encActionCcwMove:
                     if (index_n > 0) index_n--;
                     else index_n = ws_amount-1;
+                    first_show = true;
                 break;
                 case encActionBtnPressed:
-                    break;
+                    Menu_Navigate(&Menu_1);
                 break;
             }
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
-
-    Menu_Navigate(&Menu_2);
 }
 
 static void sensor_enter(Key_Pressed_t key){
