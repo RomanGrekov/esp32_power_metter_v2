@@ -115,8 +115,6 @@ EepromCli eeprom_cli(0x50);
 Confd confd(eeprom_cli);
 
 WebServer server(80);
-const char* www_username = "admin";
-const char* www_password = "esp8266";
 
 /*
     RTOS tasks prototypes
@@ -136,6 +134,7 @@ void edit_menu(uint8_t *data, int len, const char *alphabet, int alphabet_len, b
 int radio_btn_menu(char **variants, int len, int initial_idx, bool rotate, int screen_size);
 void wifi_connect(void);
 void wifi_disconnect();
+void admin_handler(void);
 
 void setup() {
     /*
@@ -187,6 +186,9 @@ void setup() {
     */
     vSemaphoreCreateBinary(SensorsChangedSemaphore);
     xSemaphoreGive(SensorsChangedSemaphore);
+
+    //confd.store_web_admin_user((uint8_t*)"admin");
+    //confd.store_web_admin_pw((uint8_t*)"testpw");
 
     /*
         Declare RTOS tasks
@@ -547,18 +549,30 @@ void taskSetupWifi( void * parameter ) {
     }
 }
 
+void admin_handler(void){
+    uint8_t admin_user[WEB_ADMIN_USER_ADDR_SIZE];
+    uint8_t admin_pw[WEB_ADMIN_PW_ADDR_SIZE];
+    uint8_t read_res;
+    Log.verbose("Inside /admin url" CR);
+    read_res = confd.read_web_admin_user(admin_user);
+    if(read_res != 0) server.send(401, "text/plain", "Failed to read admin user");
+    else {
+        read_res = confd.read_web_admin_pw(admin_pw);
+        if (read_res != 0) server.send(401, "text/plain", "Failed to read admin password");
+        else {
+            if(!server.authenticate((char *)admin_user, (char *)admin_pw))
+              return server.requestAuthentication();
+            server.send(200, "text/plain", "Login OK");
+        }
+    }
+    return server.requestAuthentication();
+}
+
 void taskWebServer( void * parameter ) {
     bool wifi_was_connected=false;
     //ArduinoOTA.begin();
-    server.on("/", [](){
-        Log.verbose("Inside / url" CR);
-        if(!server.authenticate(www_username, www_password))
-          return server.requestAuthentication();
-        server.send(200, "text/plain", "Login OK");
-    });
+    server.on("/admin", admin_handler);
     server.on("/test/", [](){
-        if(!server.authenticate(www_username, www_password))
-          return server.requestAuthentication();
         server.send(200, "text/plain", "Test page");
     });
     //

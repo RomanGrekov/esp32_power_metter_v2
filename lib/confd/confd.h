@@ -42,6 +42,11 @@ union WifiState {
 #define WIFI_STATE_ADDR_START (WIFI_MODE_ADDR_START + WIFI_MODE_ADDR_SIZE + 1)
 #define WIFI_STATE_ADDR_SIZE 4
 
+#define WEB_ADMIN_USER_ADDR_START (WIFI_STATE_ADDR_START + WIFI_STATE_ADDR_SIZE + 1)
+#define WEB_ADMIN_USER_ADDR_SIZE 10
+#define WEB_ADMIN_PW_ADDR_START (WEB_ADMIN_USER_ADDR_START + WEB_ADMIN_USER_ADDR_SIZE +1)
+#define WEB_ADMIN_PW_ADDR_SIZE 16
+
 class Confd
 {
 public:
@@ -57,6 +62,10 @@ public:
     uint8_t store_wifi_mode(WifiMode *mode);
     uint8_t read_wifi_state(WifiState *state);
     uint8_t store_wifi_state(WifiState *state);
+    uint8_t read_web_admin_user(uint8_t *user);
+    uint8_t store_web_admin_user(uint8_t *user);
+    uint8_t read_web_admin_pw(uint8_t *pw);
+    uint8_t store_web_admin_pw(uint8_t *pw);
 private:
     EepromCli& _eeprom;
 
