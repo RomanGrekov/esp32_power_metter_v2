@@ -187,6 +187,9 @@ void setup() {
     vSemaphoreCreateBinary(SensorsChangedSemaphore);
     xSemaphoreGive(SensorsChangedSemaphore);
 
+    /*
+        Write default admin user/password to eeprom
+    */
     //confd.store_web_admin_user((uint8_t*)"admin");
     //confd.store_web_admin_pw((uint8_t*)"testpw");
 
