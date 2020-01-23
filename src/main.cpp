@@ -239,12 +239,14 @@ void setup() {
                 NULL,
                 1,
                 NULL);
+    /*
     xTaskCreate(taskChargingStats,
                 "Save chargigs to struct",
                 1000,
                 NULL,
                 1,
                 NULL);
+    */
     xTaskCreate(taskSetupWifi,
                 "Setup wifi",
                 10000,
@@ -361,14 +363,7 @@ void taskMenu( void * parameter ) {
     }
 }
 
-//void vCallbackLcdBlink( xTimerHandle xTimer ){
-//    lcd_buffer.DoBlink();
-//}
-
 void taskLcd( void * parameter ) {
-    //bool is_blinking_old=false;
-    //xTimerHandle blink_timer;
-    //const uint32_t timer_id=30;
     /*
         Setup LCD
         MUST to be called here. Otherwise LCD gluchit
@@ -381,22 +376,6 @@ void taskLcd( void * parameter ) {
 
     while(1){
         lcd_buffer.Show();
-        //if (is_blinking_old != lcd_buffer.get_cursor_blink()){
-        //    is_blinking_old = lcd_buffer.get_cursor_blink();
-        //    if (is_blinking_old){
-        //        Log.notice("Turn on timer" CR);
-        //        blink_timer = xTimerCreate("Lcd symb blink", pdMS_TO_TICKS(500),
-        //                                   pdTRUE, (void *)timer_id, &vCallbackLcdBlink);
-        //        if (blink_timer == NULL) Log.error("Failed to create timer for lcd blink: %d" CR, timer_id);
-        //        xTimerStart(blink_timer, 0);
-//
-        //    } else {
-        //        Log.notice("Turn off timer" CR);
-        //        BaseType_t res = xTimerStop(blink_timer, pdMS_TO_TICKS(100));
-        //        if (res != pdPASS) Log.error("Failed to stop timer for lcd blink: %d" CR, timer_id);
-        //    }
-        //}
-
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -460,20 +439,28 @@ void taskDetectCharging( void * parameter ) {
     #define CHARGING_TRASHOLD 60 // Seconds
     xTimerHandle timers[MAX_SENSORS_AMOUNT];
 
+    uint8_t ws_amount=0;
+    uint8_t indexes[MAX_SENSORS_AMOUNT];
+
     while (1) {
-        for (uint32_t id=0; id<MAX_SENSORS_AMOUNT; id++){
-            if (sensors_data[id].get_a() > 0){
-                sensors_data[id].set_charging(true);
+        if (ws_amount == 0 ){
+            ws_amount = get_sensors_indexes(sensors, indexes, MAX_SENSORS_AMOUNT);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+        for (uint32_t id=0; id<ws_amount; id++){
+            if (sensors_data[indexes[id]].get_a() > 0){
+                sensors_data[indexes[id]].set_charging(true);
                 if(xTimerIsTimerActive(timers[id]) != pdFALSE){
                     BaseType_t res = xTimerStop(timers[id], pdMS_TO_TICKS(100));
-                    if (res != pdPASS) Log.error("Failed to stop timer for sensor: %d" CR, id);
+                    if (res != pdPASS) Log.error("Failed to stop timer for sensor: %d" CR, indexes[id]);
                 }
             }else{
-                if(sensors_data[id].get_charging()){
+                if(sensors_data[indexes[id]].get_charging()){
                     timers[id] = xTimerCreate("Is chargin treshold", pdMS_TO_TICKS(CHARGING_TRASHOLD * 1000),
-                                             pdFALSE, (void *)id, &vCallbackNotCharging);
-                    if (timers[id] == NULL) Log.error("Failed to create timer for sensor: %d" CR, id);
-                    else xTimerStart(timers[id], 0);
+                                             pdFALSE, (void *)indexes[id], &vCallbackNotCharging);
+                    if (timers[id] == NULL) Log.error("Failed to create timer for sensor: %d" CR, indexes[id]);
+                    else xTimerStart(timers[id], 10);
                 }
             }
         }
@@ -482,15 +469,23 @@ void taskDetectCharging( void * parameter ) {
 }
 
 void taskChargingLeds( void * parameter ) {
+    uint8_t ws_amount=0;
+    uint8_t indexes[MAX_SENSORS_AMOUNT];
+
     /*
         Start leds
     */
     Leds.init();
 
     while(1){
-        for (int id=0; id<MAX_SENSORS_AMOUNT; id++){
-            if (sensors_data[id].is_charging_detected()) Leds.on(id);
-            if (sensors_data[id].is_stop_charging_detected()) Leds.off(id);
+        if (ws_amount == 0 ){
+            ws_amount = get_sensors_indexes(sensors, indexes, MAX_SENSORS_AMOUNT);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+        for (int id=0; id<ws_amount; id++){
+            if (sensors_data[indexes[id]].is_charging_detected()) Leds.on(indexes[id]);
+            if (sensors_data[indexes[id]].is_stop_charging_detected()) Leds.off(indexes[id]);
             vTaskDelay(pdMS_TO_TICKS(10));
         }
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -620,7 +615,7 @@ static void Read_Sensors_Enter(Key_Pressed_t key){
     Log.notice("Reading sensors addresses" CR);
     uint8_t res = confd.read_sensors(sensors);
     if (res != 0) Log.error("Failed to read sensor addresses" CR);
-    Log.notice("Done" CR);
+    Log.notice("Reading sensors Done" CR);
 }
 
 static void sensor_select(int parent_index){
