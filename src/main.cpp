@@ -575,7 +575,12 @@ void taskWebServer( void * parameter ) {
     bool wifi_was_connected=false;
     //ArduinoOTA.begin();
     server.on("/admin", admin_handler);
-    server.on("/test/", [](){
+    server.on("/sensors/runtime", [](){
+        for (uint8_t i=0; i<server.args(); i++){
+            if (server.argName(i) == "number"){
+                Log.notice("Val: %d" CR, server.arg(i).toInt());
+            }
+        }
         server.send(200, "text/plain", "Test page");
     });
     //
