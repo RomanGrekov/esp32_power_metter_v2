@@ -17,6 +17,7 @@ void LcdBuf::Show(){
     bool screen_was_updated = false;
     if (lcd_buf_changed && (xMutexI2c == NULL || xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE)){
         lcd_buf_changed = false;
+        Serial.printf("col: %d row: %d pos: %d\n", col, row, pos);
         while(pos < MAX_SCREEN_R * MAX_SCREEN_C){
             if(col >= (MAX_SCREEN_C-1)){
                 row++;

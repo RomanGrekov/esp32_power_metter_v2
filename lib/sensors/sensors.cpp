@@ -44,11 +44,14 @@ bool Sensor::is_stop_charging_detected(void){
 }
 
 void Sensor::set_a(float a){
+    Serial.printf("1: %f %f %f\n", this->A, this->A_old, a);
     if (isnan(a)) a = 0;
     if (a != this->A_old){
+        Serial.printf("Inside a != a old\n");
         this->A_old = this->A;
     }
     this->A = a;
+    Serial.printf("2: %f %f %f\n", this->A, this->A_old, a);
 }
 
 void Sensor::set_v(float v){
