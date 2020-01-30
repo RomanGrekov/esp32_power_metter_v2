@@ -18,8 +18,8 @@ void LcdBuf::Show(){
     if (lcd_buf_changed && (xMutexI2c == NULL || xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE)){
         lcd_buf_changed = false;
         //Serial.printf("%s\n", buffer);
+        _lcd.setCursor(col, row);
         while(pos < MAX_SCREEN_R * MAX_SCREEN_C && row < MAX_SCREEN_R){
-            _lcd.setCursor(col, row);
             if (buffer[pos] == '\0' || buffer[pos] == '\n'){
                 while(col < MAX_SCREEN_C){
                     _lcd.write(' ');
@@ -34,6 +34,7 @@ void LcdBuf::Show(){
             if(col >= MAX_SCREEN_C){
                 row++;
                 col=0;
+                if (row < MAX_SCREEN_R) _lcd.setCursor(col, row);
             }
         }
         _lcd.display();
