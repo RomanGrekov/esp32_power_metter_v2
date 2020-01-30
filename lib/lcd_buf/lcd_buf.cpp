@@ -12,34 +12,29 @@ void LcdBuf::define_mutex(SemaphoreHandle_t mutex){
 
 void LcdBuf::Show(){
     int row=0;
-    int col=-1;
+    int col=0;
     int pos=0;
     bool screen_was_updated = false;
     if (lcd_buf_changed && (xMutexI2c == NULL || xSemaphoreTake(xMutexI2c, portMAX_DELAY) == pdTRUE)){
         lcd_buf_changed = false;
-        Serial.printf("%s\n", buffer);
-        while(pos < MAX_SCREEN_R * MAX_SCREEN_C){
-            if(col >= (MAX_SCREEN_C-1)){
-                row++;
-                col=0;
-            }
-            else col++;
-            //pos = col + row*MAX_SCREEN_C;
-            //Serial.printf("col: %d row: %d pos: %d\n", col, row, pos);
+        //Serial.printf("%s\n", buffer);
+        while(pos < MAX_SCREEN_R * MAX_SCREEN_C && row < MAX_SCREEN_R){
             _lcd.setCursor(col, row);
-            if ((col + row*MAX_SCREEN_C) >= MAX_SCREEN_R * MAX_SCREEN_C) break;
             if (buffer[pos] == '\0' || buffer[pos] == '\n'){
                 while(col < MAX_SCREEN_C){
                     _lcd.write(' ');
                     col++;
                 }
-                col = MAX_SCREEN_C;
             }
             else {
                 _lcd.write(buffer[pos]);
             }
-            if (buffer[pos] == '\0') pos = col + row*MAX_SCREEN_C;
-            else pos++;
+            pos++;
+            col++;
+            if(col >= MAX_SCREEN_C){
+                row++;
+                col=0;
+            }
         }
         _lcd.display();
         screen_was_updated = true;

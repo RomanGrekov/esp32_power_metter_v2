@@ -825,7 +825,6 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
             continue;
         }
         if (sensors_data[indexes[index_n]].is_data_changed() || first_show){
-            Log.notice("Data changed" CR);
             xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
             lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", indexes[index_n]+1,
                                                                    sensors_data[indexes[index_n]].get_kwh(),
