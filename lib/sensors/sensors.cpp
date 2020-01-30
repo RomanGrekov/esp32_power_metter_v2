@@ -44,29 +44,17 @@ bool Sensor::is_stop_charging_detected(void){
 }
 
 void Sensor::set_a(float a){
-    Serial.printf("1: %f %f %f\n", this->A, this->A_old, a);
     if (isnan(a)) a = 0;
-    if (a != this->A_old){
-        Serial.printf("Inside a != a old\n");
-        this->A_old = this->A;
-    }
     this->A = a;
-    Serial.printf("2: %f %f %f\n", this->A, this->A_old, a);
 }
 
 void Sensor::set_v(float v){
     if (isnan(v)) v = 0;
-    if (v != this->V_old){
-        this->V_old = this->V;
-    }
     this->V = v;
 }
 
 void Sensor::set_kwh(float kwh){
     if (isnan(kwh)) kwh = 0;
-    if (kwh != this->Kwh_old){
-        this->Kwh_old = this->Kwh;
-    }
     this->Kwh = kwh;
 }
 
@@ -83,8 +71,15 @@ float Sensor::get_kwh(void){
 }
 
 bool Sensor::is_data_changed(void){
-    if (this->V != this->V_old || this->A != this->A_old || this->Kwh != this->Kwh_old) return true;
-    else return false;
+    bool changed = false;
+    //Serial.printf("%d: %f - %f\n", this->address, this->A, this->A_old);
+    if (this->V != this->V_old || this->A != this->A_old || this->Kwh != this->Kwh_old){
+        changed = true;
+        this->A_old = this->A;
+        this->V_old = this->V;
+        this->Kwh_old = this->Kwh;
+    }
+    return changed;
 }
 
 uint8_t get_sensors_indexes(uint8_t *all_sensors, uint8_t *indexes, uint8_t amount){

@@ -238,13 +238,13 @@ void setup() {
                 NULL,
                 1,
                 NULL);
-    /*
     xTaskCreate(taskChargingLeds,
                 "Enable leds when charging",
                 10000,
                 NULL,
                 1,
                 NULL);
+    /*
     xTaskCreate(taskChargingStats,
                 "Save chargigs to struct",
                 1000,
@@ -386,15 +386,22 @@ void taskLcd( void * parameter ) {
 }
 
 void taskSensorsRead( void * parameter ) {
+    #define SLEEP_BETWEEN_CHECKS_MS 500
     uint8_t addr=0;
-    int index_n=0;
     uint8_t indexes[MAX_SENSORS_AMOUNT];
 
     PZEM004Tv30 pzem(&Serial2, addr); // Fake init
     uint8_t ws_amount=0;
 
+    /////////////// TEST environment ////////////////////
     int temp=0;
     int temp1=0;
+    #define TEST_SENSOR 1
+    #define TEST_CHARGE_TIME_MS 10000
+    #define TEST_NOT_CHARGE_TIME_MS 10000
+    #define ONE_SENSOR_CHECK_CIRCLE_PERIOD_MS 200 // Measured with millis()
+    ////////////////////////////////////////////////////
+
     while(1){
       // If something changed (added/deleted sensor) than read sensors again
       // otherwise just wait timeout
@@ -411,57 +418,53 @@ void taskSensorsRead( void * parameter ) {
           if (ws_amount == 0 ){
               Log.error( "No one working sensors to show" CR);
               vTaskDelay(pdMS_TO_TICKS(1000));
+              continue;
           }
-          index_n=0;
-
-      }
-      if (ws_amount <= 0){
-          vTaskDelay(pdMS_TO_TICKS(500));
-          continue;
       }
 
-      addr = sensors[indexes[index_n]];
-      xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
-      pzem.init(addr);
-      sensors_data[indexes[index_n]].address = addr;
-      sensors_data[indexes[index_n]].set_v(pzem.voltage());
-      sensors_data[indexes[index_n]].set_a(pzem.current());
-      //////// FOR TEST ONLY //////////////////////////////
-      if (temp >= 100){
-          Log.notice("Moved to normal");
-          sensors_data[indexes[index_n]].set_a(pzem.current());
-          if (temp1 < 100) temp1++;
-          else {
-              temp = 0;
-              temp1 = 0;
+      for (int i=0; i<ws_amount; i++){
+          addr = sensors[indexes[i]];
+          xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
+          pzem.init(addr);
+          sensors_data[indexes[i]].address = addr;
+          sensors_data[indexes[i]].set_v(pzem.voltage());
+          sensors_data[indexes[i]].set_kwh(pzem.energy());
+          //sensors_data[indexes[index_n]].set_a(pzem.current());
+          //////// FOR TEST ONLY //////////////////////////////
+          if (i == TEST_SENSOR){
+              if (temp >= TEST_CHARGE_TIME_MS/(SLEEP_BETWEEN_CHECKS_MS+ONE_SENSOR_CHECK_CIRCLE_PERIOD_MS*ws_amount)){
+                  sensors_data[indexes[i]].set_a(pzem.current());
+                  if (temp1 < TEST_NOT_CHARGE_TIME_MS/(SLEEP_BETWEEN_CHECKS_MS+ONE_SENSOR_CHECK_CIRCLE_PERIOD_MS*ws_amount)) temp1++;
+                  else {
+                      temp = 0;
+                      temp1 = 0;
+                  }
+              } else {
+                  sensors_data[indexes[i]].set_a(10.1);
+                  temp++;
+              }
           }
-      } else {
-          sensors_data[indexes[index_n]].set_a(10.1);
-          temp++;
+          ////////////////////////////////////////////////////////
+          xSemaphoreGive(xMutexSensorRead);
 
       }
-      ////////////////////////////////////////////////////////
-      sensors_data[indexes[index_n]].set_kwh(pzem.energy());
-      xSemaphoreGive(xMutexSensorRead);
-
-      if (index_n < ws_amount-1) index_n++;
-      else {
-          index_n = 0;
-          vTaskDelay(pdMS_TO_TICKS(500));
-      }
+      vTaskDelay(pdMS_TO_TICKS(SLEEP_BETWEEN_CHECKS_MS));
     }
 }
 
 void vCallbackNotCharging( xTimerHandle xTimer ){
-    uint32_t timer_id;
-    timer_id = (uint32_t)pvTimerGetTimerID(xTimer);
+    uint8_t *timer_id;
+    timer_id = (uint8_t*)pvTimerGetTimerID(xTimer);
     xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
-        sensors_data[timer_id].set_charging(false);
+        Log.verbose("Sensor %d - stop charging" CR, *timer_id);
+        sensors_data[*timer_id].set_charging(false);
     xSemaphoreGive(xMutexSensorRead);
+    Log.verbose("Delete timer on stop charging for sensor %d" CR, *timer_id);
+    xTimerDelete(xTimer, 100);
 }
 
 void taskDetectCharging( void * parameter ) {
-    #define CHARGING_TRASHOLD 60 // Seconds
+    #define CHARGING_TRASHOLD 5 // Seconds
     xTimerHandle t_handlers[MAX_SENSORS_AMOUNT];
     for (int i=0; i<MAX_SENSORS_AMOUNT; i++) t_handlers[i] = NULL;
 
@@ -477,16 +480,24 @@ void taskDetectCharging( void * parameter ) {
         xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
             for (uint32_t id=0; id<ws_amount; id++){
                 if (sensors_data[indexes[id]].get_a() > 0){
-                    sensors_data[indexes[id]].set_charging(true);
+                    if (!sensors_data[indexes[id]].get_charging()){
+                        Log.verbose("Sensor %d - start charging" CR, indexes[id]);
+                        t_handlers[id] = NULL;
+                        sensors_data[indexes[id]].set_charging(true);
+                    }
                     if(t_handlers[id] != NULL){
                         if (xTimerIsTimerActive(t_handlers[id]) == pdTRUE){
+                            Log.verbose("Stopping timer when continue charging for sensor %d" CR, indexes[id]);
                             BaseType_t res = xTimerStop(t_handlers[id], pdMS_TO_TICKS(100));
                             if (res != pdPASS) Log.error("Failed to stop timer for sensor: %d" CR, indexes[id]);
+                            Log.verbose("Delete timer on stop charging for sensor %d" CR, indexes[id]);
+                            xTimerDelete(t_handlers[id], 100);
                         }
-                        t_handlers[id] = NULL;
+                        //t_handlers[id] = NULL;
                     }
                 }else{
-                    if(sensors_data[indexes[id]].get_charging()){
+                    if(sensors_data[indexes[id]].get_charging() && t_handlers[id] == NULL){
+                        Log.verbose("Create timer on stop charging for sensor %d" CR, indexes[id]);
                         t_handlers[id] = xTimerCreate("Is chargin treshold", pdMS_TO_TICKS(CHARGING_TRASHOLD * 1000),
                                                  pdFALSE, &indexes[id], vCallbackNotCharging);
                         if (t_handlers[id] == NULL) Log.error("Failed to create timer for sensor: %d" CR, indexes[id]);
@@ -507,6 +518,7 @@ void taskChargingLeds( void * parameter ) {
         Start leds
     */
     Leds.init();
+    Leds.off_all();
 
     while(1){
         if (ws_amount == 0 ){
@@ -813,7 +825,7 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
             continue;
         }
         if (sensors_data[indexes[index_n]].is_data_changed() || first_show){
-            Log.notice("Data changed");
+            Log.notice("Data changed" CR);
             xSemaphoreTake(xMutexSensorRead, portMAX_DELAY);
             lcd_buffer.print(0, "%d: Kw/h: %.2f\nV: %.1f A: %.2f", indexes[index_n]+1,
                                                                    sensors_data[indexes[index_n]].get_kwh(),
