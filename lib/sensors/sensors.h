@@ -2,7 +2,6 @@
 #define SENSORS_H
 
 #include <Arduino.h>
-#include <ESPDateTime.h>
 #include "PZEM004Tv30.h"
 
 
@@ -12,8 +11,8 @@
 #define MAX_CHARGINGS_AMOUNT 5
 
 struct OneCharge {
-    time_t start=0;
-    time_t finish=0;
+    long int start=0;
+    long int finish=0;
     float start_kwh=0.0;
     float finish_kwh=0.0;
 };

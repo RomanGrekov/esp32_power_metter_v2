@@ -146,16 +146,15 @@ void setup() {
     Log.notice("###### Start logger ######" CR);
 
     /*
+        Clean sensors addresses
+    */
+    for (int i=0; i<MAX_SENSORS_AMOUNT; i++) sensors[i]=0;
+
+    /*
         Setup encoder
     */
     enc.begin([]{enc.EncChanged_ISR();});
     //enc.setRotation(-10, 10, false);
-
-  	/*
-      Set up the default menu text write callback, and navigate to an absolute menu item entry.
-    */
-  	Menu_SetGenericWriteCallback(Generic_Write);
-  	Menu_Navigate(&Menu_1);
 
     /*
         Mutex needed to make access to I2C bus atomic
@@ -192,6 +191,8 @@ void setup() {
     */
     //confd.store_web_admin_user((uint8_t*)"admin");
     //confd.store_web_admin_pw((uint8_t*)"testpw");
+
+    //DateTime.begin();
 
     /*
         Declare RTOS tasks
@@ -244,14 +245,12 @@ void setup() {
                 NULL,
                 1,
                 NULL);
-    /*
     xTaskCreate(taskChargingStats,
-                "Save chargigs to struct",
-                1000,
+                "Save chargings to struct",
+                10000,
                 NULL,
                 1,
                 NULL);
-    */
     xTaskCreate(taskSetupWifi,
                 "Setup wifi",
                 10000,
@@ -264,6 +263,14 @@ void setup() {
                 NULL,
                 1,
                 NULL);
+
+  	/*
+      Set up the default menu text write callback, and navigate to an absolute menu item entry.
+    */
+  	Menu_SetGenericWriteCallback(Generic_Write);
+  	Menu_Navigate(&Menu_1);
+    Menu_EnterItem(KEY_OK);
+
 }
 
 void loop() {
@@ -405,7 +412,7 @@ void taskSensorsRead( void * parameter ) {
     while(1){
       // If something changed (added/deleted sensor) than read sensors again
       // otherwise just wait timeout
-      if (xSemaphoreTake(SensorsChangedSemaphore, 10) == pdPASS){
+      if (xSemaphoreTake(SensorsChangedSemaphore, 100) == pdPASS){
           /*
               Read sensors addresses from eeprom
           */
@@ -539,30 +546,44 @@ void taskChargingLeds( void * parameter ) {
 
 void taskChargingStats( void * parameter ) {
     OneCharge _chargings[MAX_SENSORS_AMOUNT];
+    int ws_amount=0;
+    uint8_t indexes[MAX_SENSORS_AMOUNT];
     while(1){
-        for (int id=0; id<MAX_SENSORS_AMOUNT; id++){
-            if(sensors_data[id].get_charging()){
+        if (ws_amount == 0 ){
+            ws_amount = get_sensors_indexes(sensors, indexes, MAX_SENSORS_AMOUNT);
+            Log.error("Charge sttistics: No sensors to read" CR);
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+        for (int id=0; id<ws_amount; id++){
+            if(sensors_data[indexes[id]].get_charging()){
                 // Search for started chargings
-                if(_chargings[id].start > 0) continue;
+                if(_chargings[indexes[id]].start > 0) continue;
                 else {
-                    _chargings[id].start = DateTime.now();
-                    _chargings[id].start_kwh = sensors_data[id].get_kwh();
+                    Log.verbose("Charge_stats: Save %d sensor charge start time" CR, indexes[id]);
+                    _chargings[indexes[id]].start = millis();
+                    _chargings[indexes[id]].start_kwh = sensors_data[indexes[id]].get_kwh();
                 }
             } else {
-                if(_chargings[id].start > 0){
-                    _chargings[id].finish = DateTime.now();
-                    _chargings[id].finish_kwh = sensors_data[id].get_kwh();
+                if(_chargings[indexes[id]].start > 0){
+                    Log.verbose("Charge_stats: Save %d sensor charge end time" CR, indexes[id]);
+                    _chargings[indexes[id]].finish = millis();
+                    _chargings[indexes[id]].finish_kwh = sensors_data[indexes[id]].get_kwh();
                 }
             }
-            if (_chargings[id].start > 0 && _chargings[id].finish > 0){
-                sensors_data[id].push_one_charging(_chargings[id]);
-                _chargings[id].start =      0;
-                _chargings[id].finish =     0;
-                _chargings[id].start_kwh =  0;
-                _chargings[id].finish_kwh = 0;
+            if (_chargings[indexes[id]].start > 0 && _chargings[indexes[id]].finish > 0){
+                Log.notice("Push charging: %d - %d: %f" CR, _chargings[indexes[id]].start,
+                                                            _chargings[indexes[id]].finish,
+                                                            _chargings[indexes[id]].start_kwh-_chargings[indexes[id]].finish_kwh);
+                sensors_data[indexes[id]].push_one_charging(_chargings[indexes[id]]);
+                _chargings[indexes[id]].start =      0;
+                _chargings[indexes[id]].finish =     0;
+                _chargings[indexes[id]].start_kwh =  0;
+                _chargings[indexes[id]].finish_kwh = 0;
             }
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
@@ -821,7 +842,7 @@ static void showAllSensorsRuntime(Key_Pressed_t key){
             ws_amount = get_sensors_indexes(sensors, indexes, MAX_SENSORS_AMOUNT);
             lcd_buffer.print(0, "No one working sensors to show");
             Log.error("No sensors to read" CR);
-            vTaskDelay(pdMS_TO_TICKS(100));
+            vTaskDelay(pdMS_TO_TICKS(500));
             continue;
         }
         if (sensors_data[indexes[index_n]].is_data_changed() || first_show){
